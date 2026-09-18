@@ -411,6 +411,13 @@ stage_luks() {
     resolve_partitions "$d"
     part="$PART_ZFS"
     name="zfs${i}"
+    # SSDs (ROTA=0: SATA SSD, NVMe) skip dm-crypt's workqueues — lower latency, less
+    # CPU. `discard` is already on every line; HDDs keep the workqueues (throughput).
+    opts="luks,discard,initramfs,nofail"
+    if [[ "$(lsblk -dnro ROTA "$part" 2>/dev/null)" == "0" ]]; then
+      opts="$opts,no-read-workqueue,no-write-workqueue"
+      log "$part is non-rotational — dm-crypt workqueue bypass enabled for $name"
+    fi
     if (( APPLY )); then
       cryptsetup luksFormat --type luks2 \
         --cipher aes-xts-plain64 --key-size 512 --hash sha256 --pbkdf argon2id \
@@ -422,11 +429,12 @@ stage_luks() {
       uuid="$(cryptsetup luksUUID "$part")"
       # nofail: a missing disk (single-disk boot of a mirror, DESIGN.md §14) must not
       # stall the boot for 90 s per absent container — the pool imports degraded.
-      CRYPTTAB_LINES+=("$name UUID=$uuid none luks,discard,initramfs,nofail")
+      CRYPTTAB_LINES+=("$name UUID=$uuid none $opts")
     else
       printf '  would run: cryptsetup luksFormat --type luks2 ... %s\n' "$part" >&2
       printf '  would run: cryptsetup open %s %s\n' "$part" "$name" >&2
-      CRYPTTAB_LINES+=("$name UUID=<luks-uuid> none luks,discard,initramfs,nofail")
+      printf '  crypttab options for %s would be: %s\n' "$name" "$opts" >&2
+      CRYPTTAB_LINES+=("$name UUID=<luks-uuid> none $opts")
     fi
     LUKS_MEMBERS+=("/dev/mapper/$name")
     i=$((i + 1))
@@ -609,8 +617,13 @@ EOF
   if [[ "$SWAP" == "ephemeral" ]]; then
     resolve_partitions "${DISKS[0]}"
     local swap_part="$PART_SWAP"
+    # Same SSD workqueue bypass as the pool containers (plain dm-crypt honors it too).
+    local swap_opts="swap,cipher=aes-xts-plain64,size=512,noearly"
+    if [[ "$(lsblk -dnro ROTA "$swap_part" 2>/dev/null)" == "0" ]]; then
+      swap_opts="$swap_opts,no-read-workqueue,no-write-workqueue"
+    fi
     if (( APPLY )); then
-      printf 'swap\t%s\t/dev/urandom\tswap,cipher=aes-xts-plain64,size=512,noearly\n' "$swap_part" \
+      printf 'swap\t%s\t/dev/urandom\t%s\n' "$swap_part" "$swap_opts" \
         >> "$MNT/etc/crypttab"
       printf '/dev/mapper/swap\tnone\tswap\tsw\t0\t0\n' >> "$MNT/etc/fstab"
     else
