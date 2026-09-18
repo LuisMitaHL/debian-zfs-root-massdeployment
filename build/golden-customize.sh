@@ -79,7 +79,11 @@ mkdir -p "$TARGET/etc/default/grub.d"
 # just produced `... ro nohibernate quiet nohibernate`. Per-machine parameters (serial
 # console, zswap) are appended by zfs-stamp.sh into /etc/default/grub.d/99-zfs-stamp.cfg.
 cat > "$TARGET/etc/default/grub.d/99-zfs-root.cfg" <<'EOF'
-GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT nohibernate"
+# nohibernate is mandatory (DESIGN.md §8.1) — never remove it from this line.
+# init_on_alloc=0: skip zeroing heap on alloc (throughput; default-on in Debian).
+# zfs.zfs_txg_timeout=30: sync a transaction group every 30 s instead of 5 s
+# (fewer txgs, better streaming throughput; larger loss window on power loss).
+GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT nohibernate init_on_alloc=0 zfs.zfs_txg_timeout=30"
 GRUB_ENABLE_CRYPTODISK=y
 EOF
 
