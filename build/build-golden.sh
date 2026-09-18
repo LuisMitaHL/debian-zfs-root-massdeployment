@@ -49,6 +49,64 @@ die()  { printf '[build-golden] ERROR: %s\n' "$*" >&2; exit 1; }
 
 stage() { printf '\n== %s ==\n' "$*" >&2; }
 
+# --------------------------------------------------------------------- instance lock
+
+# One builder at a time: two concurrent runs would share $WORK/$IMG and the pool
+# name `rpool`. flock (not a pidfile) so a killed run releases the lock by itself.
+mkdir -p "$WORK" "$OUT"
+command -v flock >/dev/null || die "flock not found (util-linux required)"
+exec {GOLDEN_LOCK_FD}>"$WORK/.build-golden.lock"
+if ! flock -n "$GOLDEN_LOCK_FD"; then
+  holder="$(cat "$WORK/.build-golden.pid" 2>/dev/null || echo unknown)"
+  die "another build-golden.sh is already running (pid $holder) — refusing to share $WORK"
+fi
+echo "$$" > "$WORK/.build-golden.pid"
+
+# Stale state from a killed run: mounts left under $MNT, our own file-backed pool
+# still imported, and a non-empty $MNT that makes `zpool create -R` abort with
+# "mountpoint exists and is not empty". Safe to reclaim here precisely because the
+# lock above proves no other instance is running.
+reclaim_stale_state() {
+  local m f
+  # Release mounts under $MNT first (bind leftovers from a dead mmdebstrap run).
+  while read -r m f; do
+    [[ -n "$m" ]] || continue
+    if [[ "$f" == "zfs" ]]; then
+      zfs unmount -f "$m" 2>/dev/null || umount -l "$m" 2>/dev/null || true
+    else
+      umount "$m" 2>/dev/null || umount -l "$m" 2>/dev/null || true
+    fi
+  done < <(awk -v p="$MNT" '$2 ~ ("^" p "(/|$)") { print length, $2, $3 }' /proc/mounts \
+             | sort -rn | cut -d' ' -f2-)
+
+  # Our own stale pool (file-backed on $IMG) may still be imported. Destroy it —
+  # but ONLY if its vdev really is our image file; anything else is someone's
+  # real pool and must not be touched.
+  if zpool list -H -o name 2>/dev/null | grep -qx "$POOL"; then
+    command -v zdb >/dev/null \
+      || die "zdb not found — cannot verify who owns pool '$POOL', refusing to proceed"
+    if zdb -C "$POOL" 2>/dev/null | grep -qF "$IMG"; then
+      warn "destroying our own stale build pool '$POOL' from a previous run"
+      zpool destroy -f "$POOL" 2>/dev/null \
+        || die "could not destroy stale build pool '$POOL' — reboot the host, then re-run"
+    else
+      die "a pool named '$POOL' already exists on this host and is NOT our build pool — refusing to touch it"
+    fi
+  fi
+
+  # Whatever is left in $MNT now is stale build output, not a live mount.
+  if [[ -d "$MNT" ]] && [[ -n "$(ls -A "$MNT" 2>/dev/null)" ]]; then
+    if awk -v p="$MNT" '$2 ~ ("^" p "(/|$)") { found=1 } END { exit !found }' /proc/mounts; then
+      die "something is still mounted under $MNT — unmount it by hand, then re-run"
+    fi
+    warn "clearing stale contents of $MNT from a previous run"
+    rm -rf -- "${MNT:?}/"?* "${MNT:?}/".[!.]* 2>/dev/null || true
+    [[ -z "$(ls -A "$MNT" 2>/dev/null)" ]] \
+      || die "could not clear $MNT — clear it by hand, then re-run"
+  fi
+  mkdir -p "$MNT"
+}
+
 # --------------------------------------------------------------------- preflight
 
 stage "Preflight"
@@ -62,10 +120,12 @@ else
 fi
 
 if zpool list -H -o name 2>/dev/null | grep -qx "$POOL"; then
-  die "a pool named '$POOL' already exists on this host — refusing to touch it"
+  log "a pool named '$POOL' exists — reclaim will keep it only if it is ours"
 fi
 
-mkdir -p "$WORK" "$OUT"
+# A killed run leaves mounts, our own stale pool, and a non-empty $MNT behind.
+# Reclaim runs under the instance lock above, so no other builder can exist.
+reclaim_stale_state
 
 # --------------------------------------------------------------------- build pool
 
@@ -226,8 +286,8 @@ if (( CLEAN )); then
     log "build pool destroyed"
   else
     warn "could not destroy the build pool '$POOL'"
-    warn "this pool can no longer be exported or destroyed — REBOOT the build host before the"
-    warn "next run, or build-golden.sh will abort with 'a pool named rpool already exists'"
+    warn "the next run will reclaim it automatically (stale mounts + non-empty $MNT included)"
+    warn "as long as no other build-golden.sh is running — otherwise reboot the host first"
   fi
 else
   log "build pool kept for incremental rebuilds; re-run with --clean to remove it"
