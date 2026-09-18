@@ -438,6 +438,15 @@ Each of these cost a debugging cycle and is verified.
     in double quotes the stamp (running under `set -u`) expands `$6` as a positional
     parameter and dies with `unbound variable`. The smoke test itself fell into this.
     `USER_PASSWORD_HASH='$6$…'` — always single quotes.
+22. **Boot-time cryptsetup/setupcon noise, triaged.** Three warnings appear on every boot:
+    `Couldn't resolve device rpool/ROOT/debian` + `Couldn't determine root device` is
+    benign noise — the initramfs resolver only understands block devices and the root
+    here is a ZFS dataset; the boot proves it (24 s, 0 failures). There is no clean
+    switch for it, so it stays. `swap: couldn't determine device type` + `Resume target
+    swap uses a key file` is fixed with `noearly` on the ephemeral swap crypttab entry:
+    the initramfs never needed that swap (nothing resumes; systemd creates it at real
+    boot). `setupcon is missing` is fixed by the `console-setup` package in the golden
+    image — which also gives the LUKS prompt a real keymap.
 
 ---
 

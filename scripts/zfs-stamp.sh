@@ -602,11 +602,15 @@ EOF
   # Mini PCs: encrypted swap with an ephemeral per-boot key. crypttab plain mode keyed from
   # /dev/urandom IS the ephemeral-key mechanism: no LUKS header, no persistent key, nothing
   # to unlock, and no resumable image (which is the point). zswap caches in front of it.
+  # noearly: the initramfs has no business setting up this swap (nothing resumes from it —
+  # hibernation is disabled four ways). systemd-cryptsetup creates it at real boot instead.
+  # Without noearly, every boot prints "swap: couldn't determine device type" and
+  # "Resume target swap uses a key file" from the initramfs cryptsetup scripts.
   if [[ "$SWAP" == "ephemeral" ]]; then
     resolve_partitions "${DISKS[0]}"
     local swap_part="$PART_SWAP"
     if (( APPLY )); then
-      printf 'swap\t%s\t/dev/urandom\tswap,cipher=aes-xts-plain64,size=512\n' "$swap_part" \
+      printf 'swap\t%s\t/dev/urandom\tswap,cipher=aes-xts-plain64,size=512,noearly\n' "$swap_part" \
         >> "$MNT/etc/crypttab"
       printf '/dev/mapper/swap\tnone\tswap\tsw\t0\t0\n' >> "$MNT/etc/fstab"
     else

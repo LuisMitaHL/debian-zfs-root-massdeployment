@@ -31,6 +31,10 @@ zstd
 cryptsetup
 cryptsetup-initramfs
 dropbear-initramfs
+# setupcon/console font and keymap in the initramfs and on the console. Without it every
+# boot prints "setupcon is missing" — and worse, the LUKS passphrase prompt runs on a
+# default keymap, which matters with non-US keyboards.
+console-setup
 # NOTE: no haveged, deliberately. Upstream declares the haveged *service* obsolete
 # since kernel 5.6 (in-tree jitter entropy + non-blocking /dev/random once the CRNG
 # is ready; Debian bug #999811), and trixie runs 6.12. Worst case on an
