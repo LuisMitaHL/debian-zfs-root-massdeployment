@@ -7,10 +7,11 @@
 #
 # Responsibilities:
 #   1. add trixie-backports, install ZFS from it
-#   2. disable hibernation unconditionally (DESIGN.md §8.1)
-#   3. install the identity-sealing unit (DESIGN.md §11)
-#   4. enable the services the design depends on
-#   5. generate the es_BO.UTF-8 locale and make it the default
+#   2. write the full APT sources (trixie + security + updates, all components)
+#   3. disable hibernation unconditionally (DESIGN.md §8.1)
+#   4. install the identity-sealing unit (DESIGN.md §11)
+#   5. enable the services the design depends on
+#   6. generate the es_BO.UTF-8 locale and make it the default
 
 set -eu
 
@@ -20,6 +21,25 @@ ROOT="chroot $TARGET"
 echo "==> golden-customize: adding trixie-backports"
 cat > "$TARGET/etc/apt/sources.list.d/backports.list" <<'EOF'
 deb http://deb.debian.org/debian trixie-backports main contrib
+EOF
+
+echo "==> golden-customize: full APT sources (trixie + security + updates)"
+# Replace whatever mmdebstrap left behind so the suites/components are exactly
+# these — no duplicates, no missing non-free. (No deb-src: source packages are
+# never needed on a stamped server.)
+rm -f "$TARGET/etc/apt/sources.list" "$TARGET/etc/apt/sources.list.d/debian.sources"
+cat > "$TARGET/etc/apt/sources.list.d/debian.sources" <<'EOF'
+Types: deb
+URIs: http://deb.debian.org/debian/
+Suites: trixie trixie-updates
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://security.debian.org/debian-security/
+Suites: trixie-security
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
 
 # The build host must resolve DNS for apt; a container on Arch may need this.
