@@ -39,6 +39,7 @@ fields in a **profile file**, never a fork of the image.
 |---|---|
 | [`DESIGN.md`](DESIGN.md) | the agreed design — read this first |
 | [`profiles/`](profiles/) | per-host profiles + the schema |
+| [`pick-disks.sh`](pick-disks.sh) | fills a profile's `DISKS` from `/dev/disk/by-id` (also at `/root/pick-disks.sh` on the ISO) |
 | [`scripts/zfs-stamp.sh`](scripts/zfs-stamp.sh) | stamps the golden image onto a target (dry-run by default) |
 | [`scripts/seal-identity.sh`](scripts/seal-identity.sh) | regenerates machine-id, SSH keys, dropbear keys on first boot |
 | [`systemd/zfs-stamp-seal.service`](systemd/zfs-stamp-seal.service) | one-shot unit that runs the above |

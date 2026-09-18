@@ -57,6 +57,9 @@ QUICK START
 
    Read the plan it prints: disks, topology, firmware mode, encryption, swap.
    The machine's disk serial numbers must match the DISKS list in the profile.
+   Tip: `sudo /root/pick-disks.sh /media/carrier/<host>.conf` picks the target
+   disks from /dev/disk/by-id and writes them into the profile, so hostname and
+   IP are the only things left to edit by hand.
 
 4. Do it for real:
 

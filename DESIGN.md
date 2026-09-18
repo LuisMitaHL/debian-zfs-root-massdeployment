@@ -389,6 +389,7 @@ payload. Nothing is fetched at install time.
 Run from the live environment on the target:
 
 1. Confirm target disks by `/dev/disk/by-id/*`; refuse to proceed on ambiguity.
+   (`pick-disks.sh` writes the profile's DISKS block from a numbered menu.)
 2. Partition every disk (sgdisk), with alignment.
 3. Create mdadm RAID1 for `/boot` (servers); mkfs.ext4.
 4. Create and open the LUKS2 containers (zpool members; swap on mini PCs).

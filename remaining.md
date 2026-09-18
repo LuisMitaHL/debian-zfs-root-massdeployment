@@ -54,6 +54,7 @@ The ISO is **static**; the golden image and per-host profiles live on a second p
 | `scripts/seal-identity.sh` | first-boot identity sealing (machine-id, SSH keys, dropbear keys, hostid) |
 | `systemd/zfs-stamp-seal.service` | one-shot unit running the above |
 | `profiles/` | profile schema + 3 examples (shell fragments, sourced) |
+| `pick-disks.sh` | fills a profile's `DISKS` from `/dev/disk/by-id` (also at `/root` on the live ISO) |
 | `tests/smoke-stamp.sh` | stamps loop disks inside the VM (fastest, least convincing) |
 | `tests/installer-qemu.sh` | **drives the real installer ISO in QEMU/BIOS over serial** |
 | `tests/boot-stamped.sh` | **boots a stamped image in QEMU/BIOS, answers LUKS over serial** |

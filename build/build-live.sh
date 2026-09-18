@@ -117,6 +117,10 @@ install -m 0644 "$REPO/live/live-ssh-setup.service" "$LBWORK/config/includes.chr
 install -m 0644 "$REPO/live/zz-live-ssh.sh"        "$LBWORK/config/includes.chroot/etc/profile.d/zz-live-ssh.sh"
 install -m 0644 "$REPO/live/sshd-live-root.conf"   "$LBWORK/config/includes.chroot/etc/ssh/sshd_config.d/99-live-root.conf"
 
+# Operator helper: fill a profile's DISKS from /dev/disk/by-id without retyping
+# full paths. Lives at repo root (tracked) and at /root on the live medium.
+install -m 0755 "$REPO/pick-disks.sh" "$LBWORK/config/includes.chroot/root/pick-disks.sh"
+
 # Operator instructions, in BOTH places they can be useful:
 #   includes.binary/ -> copied verbatim into the ISO tree, so it is readable by simply mounting
 #                       the medium on any machine, including one that cannot boot it.
