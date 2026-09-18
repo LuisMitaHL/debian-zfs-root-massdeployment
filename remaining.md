@@ -310,12 +310,22 @@ Best remaining leads, in order, for whoever picks this up (~15 min per installer
 
 **Do not** spend very long on this, and **do not** turn it into a hard failure: the target boots.
 
-### 5.6 The server class has never been booted
+### 5.6 The server class boots (2026-09-18) — including single-disk
 
-Only the mini profile has been installed and booted. mdadm RAID1 `/boot`, raidz topologies, the
-zram path and `BOOT_MODE="both"` are exercised only by the loop-disk smoke test — which is not
-green (§5.1). The mdadm boot path in particular is unproven: GRUB must assemble the array, and
-`tests/boot-stamped.sh` only attaches a single virtio disk.
+The mirror profile (mdadm RAID1 `/boot`, zram, `BOOT_MODE=both`) stamps and boots in
+QEMU/BIOS: GRUB → kernel → two LUKS prompts (both answered over serial) → login,
+and with one disk detached it boots degraded to a login as well (`zpool status`
+DEGRADED, mirror with one ONLINE member). `tests/boot-stamped.sh` takes extra images
+(`server0.img PASS server1.img`); the LUKS-prompt loop already answers N prompts.
+Single-disk boot needed `nofail` on the crypttab containers and on `/boot` + `/boot/efi`
+in fstab — without it, the absent disk's LUKS UUID and the foreign ESP UUID stall the
+boot into emergency mode. Found along the way: `useradd -m` ran while `rpool/home`
+was unmounted, so home dirs landed on the root dataset and were hidden under the
+`/home` mount at boot (login worked, no home dir). `stage_user` now mounts the home
+dataset during staging.
+
+Still unproven: raidz topologies (stamped but never booted), and the whole acceptance
+gate on real hardware (`DESIGN.md` §14).
 
 ### 5.7 Smaller items
 
@@ -470,9 +480,9 @@ from the copy baked into the ISO, so a script change is testable in ~15 min inst
    asserts the DHCP `10-wired.network` and the login user, so it catches regressions in
    those too. Note the golden image on scratch already contains `sudo`; a fresh
    `build-golden.sh` is only needed after `golden-packages.list` changes.
-2. **Boot the server profile** (mirror, mdadm `/boot`, zram) — §5.6. Extend
-   `tests/boot-stamped.sh` to attach two disks; the mdadm/GRUB path is the least-tested part of
-   the design.
+2. ~~**Boot the server profile**~~ — **done 2026-09-18** (mirror boots with 2 disks
+   and degraded with 1; `boot-stamped.sh` takes extra images). Left: raidz boot,
+   UEFI automated test (§5.3), real hardware (§14).
 3. **The export wart** — §5.5, if you care. It is cosmetic and the diagnostics are ready.
 4. **UEFI automated test** — §5.3 (lowest value; BIOS covers the logic).
 5. **Run the acceptance gate on real hardware** — `DESIGN.md` §14.
