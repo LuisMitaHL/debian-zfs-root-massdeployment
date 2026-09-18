@@ -31,7 +31,11 @@ zstd
 cryptsetup
 cryptsetup-initramfs
 dropbear-initramfs
-haveged
+# NOTE: no haveged, deliberately. Upstream declares the haveged *service* obsolete
+# since kernel 5.6 (in-tree jitter entropy + non-blocking /dev/random once the CRNG
+# is ready; Debian bug #999811), and trixie runs 6.12. Worst case on an
+# entropy-starved box is a boot-time delay in key generation, never weak keys —
+# the same position as stock Debian, which does not ship haveged either.
 # NOT optional, even though `systemd` only Recommends it and --variant=important drops
 # Recommends. Without it there is no systemd-cryptsetup-generator, and Debian MASKS the legacy
 # cryptdisks.service / cryptdisks-early.service (both are symlinks to /dev/null), so /etc/crypttab
