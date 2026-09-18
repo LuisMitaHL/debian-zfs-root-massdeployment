@@ -68,8 +68,12 @@ QUICK START
 
    The target asks for the LUKS passphrase -- on a monitor, or on the serial
    console if the profile sets SERIAL_CONSOLE. If the profile sets
-   DROPBEAR_AUTHORIZED_KEYS you can instead SSH into the initramfs and run
-   `cryptroot-unlock`. The machine then seals its own identity (machine-id,
+   DROPBEAR_AUTHORIZED_KEYS you can instead SSH into the initramfs (port 2222)
+   and run `cryptroot-unlock`:
+
+        ssh -p 2222 root@<machine-address>
+
+   The machine then seals its own identity (machine-id,
    SSH host keys, dropbear host keys, /etc/hostid) and reboots once more.
 
 

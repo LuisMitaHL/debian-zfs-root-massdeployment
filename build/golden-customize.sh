@@ -120,6 +120,19 @@ cat > "$TARGET/etc/default/locale" <<'EOF'
 LANG=es_BO.UTF-8
 EOF
 
+echo "==> golden-customize: dropbear unlock on port 2222 (not 22)"
+# Upstream mechanism (README.initramfs): DROPBEAR_OPTIONS in this file is baked into
+# every initrd by update-initramfs — which the stamp re-runs per machine, so the port
+# reaches all targets. Port 22 stays the real sshd's; 2222 is unambiguously "unlock me".
+DBCONF="$TARGET/etc/dropbear/initramfs/dropbear.conf"
+if [ -f "$DBCONF" ] && grep -q '^#DROPBEAR_OPTIONS=' "$DBCONF"; then
+  sed -i 's/^#DROPBEAR_OPTIONS=.*/DROPBEAR_OPTIONS="-p 2222"/' "$DBCONF"
+elif ! grep -q '^DROPBEAR_OPTIONS=' "$DBCONF" 2>/dev/null; then
+  printf '%s\n' 'DROPBEAR_OPTIONS="-p 2222"' >> "$DBCONF"
+fi
+grep -q '^DROPBEAR_OPTIONS="-p 2222"$' "$DBCONF" \
+  || { echo "ERROR: could not set dropbear port in $DBCONF" >&2; exit 1; }
+
 echo "==> golden-customize: installing the identity-sealing unit"
 : "${REPO_DIR:?REPO_DIR must point at the repository}"
 install -m 0755 "$REPO_DIR/scripts/seal-identity.sh" "$TARGET/usr/local/sbin/seal-identity.sh"

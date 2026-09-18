@@ -238,8 +238,9 @@ rpool/home                  separate, preserved across re-stamps
 
 - **LUKS2, under ZFS, one container per disk.** Chosen over LUKS1 for 32 keyslots vs 8, native
   tokens, and because `systemd-cryptenroll` TPM2 requires LUKS2.
-- **Unlock now:** `dropbear-initramfs` — a human SSHes to the machine while it is in the
-  initramfs and runs `cryptroot-unlock`.
+- **Unlock now:** `dropbear-initramfs` on port **2222** — a human SSHes to the machine
+  while it is in the initramfs (`ssh -p 2222 root@<addr>`) and runs `cryptroot-unlock`.
+  Port 22 stays the real sshd's; 2222 is unambiguously "unlock me".
 - **Unlock later:** `clevis luks bind` adds a TPM2 or Tang keyslot **without re-encrypting**.
   `clevis-initramfs` does hook `initramfs-tools` on trixie, so this is a keyslot migration, not
   a reinstall. Plan for a fallback keyslot (Shamir) so a Tang outage cannot brick the fleet.
@@ -474,7 +475,8 @@ Do not trust the pipeline until a freshly stamped machine passes all of this:
 - **`systemctl is-active dev-mapper-swap.swap`** on a mini PC (ephemeral swap up), and
   **`swapon --show` shows only `/dev/zram0`** on a server. `systemd-zram-generator` must not be
   erroring — check `journalctl -b | grep -i zram`.
-- dropbear unlock reachable at the machine's known address; `cryptroot-unlock` succeeds.
+- dropbear unlock reachable at the machine's known address, port 2222
+  (`ssh -p 2222 root@<addr>`); `cryptroot-unlock` succeeds.
 - **No hibernation:** `cat /sys/power/disk` / `state` behaviour consistent with `nohibernate`;
   `systemctl status hibernate.target` masked; `AllowHibernation=no` present.
 - **Identity is unique:** two machines stamped from the same image have different
