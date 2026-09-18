@@ -3,7 +3,12 @@
 # No ISO: this is the stamped machine starting on its own, which is the one thing the whole
 # project is for.
 #
-#   ./boot-stamped.sh [image] [passphrase]
+#   ./boot-stamped.sh [image] [passphrase] [extra-image...]
+#
+# One disk boots a mini image; pass a mirror pair (server0.img PASS server1.img) to boot
+# the server profile, exercising the mdadm RAID1 /boot and multi-container unlock. Every
+# LUKS prompt on the console is answered; single-disk boot (DESIGN.md §14) is just the
+# pair with one image omitted.
 #
 # BIOS, not UEFI, on purpose: no OVMF, no NVRAM, no vars.fd, and — unlike UEFI in this VM —
 # SeaBIOS has never dropped into a firmware shell mid-test.
@@ -16,6 +21,10 @@ set -u
 SCRATCH=/mnt/scratch
 IMG="${1:-$SCRATCH/single.img}"
 PASS="${2:-smoke-test-passphrase}"
+shift $(( $# >= 2 ? 2 : $# ))
+# Extra images ($3...) attach as further virtio disks. $1/$2 keep their historical
+# meaning so existing single-disk callers are unaffected.
+EXTRA_IMGS=("$@")
 PORT=4555
 MPORT=4556
 DEADLINE=${DEADLINE:-360}   # seconds of guest time before we give up
@@ -25,18 +34,33 @@ BOOTIMG="$SCRATCH/boot-test.img"
 LOG="$SCRATCH/boot.log"
 
 rm -f "$LOG" "$SCRATCH/qemu-boot.err"
-echo "=== source image ==="
-ls -lh "$IMG"
+echo "=== source image(s) ==="
+ls -lh "$IMG" ${EXTRA_IMGS[@]+"${EXTRA_IMGS[@]}"}
 
-echo "=== copying to $BOOTIMG (the original stays untouched) ==="
-rm -f "$BOOTIMG"
+echo "=== copying (the originals stay untouched) ==="
+rm -f "$BOOTIMG" "$SCRATCH"/boot-test-*.img
 cp --sparse=always "$IMG" "$BOOTIMG" || exit 1
 ls -lh "$BOOTIMG"
+BOOT_EXTRA=()
+i=1
+for e in ${EXTRA_IMGS[@]+"${EXTRA_IMGS[@]}"}; do
+  cp --sparse=always "$e" "$SCRATCH/boot-test-$i.img" || exit 1
+  BOOT_EXTRA+=("$SCRATCH/boot-test-$i.img")
+  i=$((i + 1))
+done
 
 echo "=== booting (BIOS, serial tcp:$PORT, monitor tcp:$MPORT) ==="
+EXTRA_QEMU=""
+i=1
+for e in ${BOOT_EXTRA[@]+"${BOOT_EXTRA[@]}"}; do
+  EXTRA_QEMU="$EXTRA_QEMU -drive file=$e,format=raw,if=none,id=d$i -device virtio-blk-pci,drive=d$i,serial=zfstarget$i"
+  i=$((i + 1))
+done
+# shellcheck disable=SC2086
 qemu-system-x86_64 -m 4096 -smp 2 -enable-kvm \
   -drive file="$BOOTIMG",format=raw,if=none,id=d0 \
   -device virtio-blk-pci,drive=d0,serial=zfstarget \
+  $EXTRA_QEMU \
   -boot order=c \
   -display none -monitor tcp:127.0.0.1:$MPORT,server,nowait \
   -serial tcp:127.0.0.1:$PORT,server,nowait \

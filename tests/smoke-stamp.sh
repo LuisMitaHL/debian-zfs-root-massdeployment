@@ -53,10 +53,23 @@ for _ in 1 2 3; do
   umount -R "$WORK" 2>/dev/null || true
   zfs unmount -a -f 2>/dev/null || true
   zpool destroy -f rpool 2>/dev/null || true
+  # Containers must be closed too: an open /dev/mapper/zfsN makes the next run die at
+  # "Device zfsN already exists". Close them only after the destroy attempt above.
+  for m in /dev/mapper/zfs*; do
+    [[ -e "$m" ]] || continue
+    cryptsetup close "${m##*/}" 2>/dev/null || true
+  done
   mdadm --stop /dev/md0 2>/dev/null || true
   [[ -e /dev/md0 ]] || break
   sleep 1
 done
+# The §5.5 export wart can leave the pool imported and busy even after all of the above
+# (nothing mounted, nothing holding it, export still refuses). Only a reboot clears that
+# state — and stamping onto it fails confusingly at "Device zfsN already exists", so stop
+# here with the actual remedy instead.
+if zpool list -H -o name 2>/dev/null | grep -qx rpool; then
+  die "previous run's pool is still imported and busy (export wart) — reboot the VM, remount scratch, and re-run"
+fi
 losetup -D 2>/dev/null || true
 rm -f /dev/disk/by-id/smoke-disk* 2>/dev/null || true
 if [[ "${SKIP_GOLDEN:-0}" -eq 1 && -f "$WORK/out/rpool.stream.zst" ]]; then
@@ -125,6 +138,10 @@ cleanup_test() {
     umount -R "$WORK" 2>/dev/null || true
     zfs unmount -a -f 2>/dev/null || true
     zpool destroy -f rpool 2>/dev/null || true
+    for m in /dev/mapper/zfs*; do
+      [[ -e "$m" ]] || continue
+      cryptsetup close "${m##*/}" 2>/dev/null || true
+    done
     mdadm --stop /dev/md0 2>/dev/null || true
     [[ -e /dev/md0 ]] || break
     sleep 1
@@ -179,7 +196,9 @@ DISKS=(
 $(for (( i=0; i<N_DISKS; i++ )); do printf '  /dev/disk/by-id/smoke-disk%s\n' "$i"; done)
 )
 TOPOLOGY="mirror"
-BOOT_MODE="uefi"
+# Both bootloaders: the smoke images double as the server-boot test source
+# (tests/boot-stamped.sh boots them on BIOS with 1 or 2 disks attached).
+BOOT_MODE="both"
 SWAP="none"
 ZRAM="yes"
 CRYPT="yes"
@@ -342,8 +361,18 @@ else
 fi
 
 # /boot lives on the md array; assemble and mount it so the initramfs can be inspected.
+# Members are discovered by content (linux_raid_member), never by partition index —
+# hardcoding p2 once assembled the 1M BIOS partitions and every /boot check failed
+# on an empty directory while the real array sat untouched.
 MD_PARTS=()
-for d in "${LOOPS[@]}"; do MD_PARTS+=("${d}p2"); done
+for d in "${LOOPS[@]}"; do
+  for p in "${d}"p*; do
+    [[ -e "$p" ]] || continue
+    if blkid -s TYPE -o value "$p" 2>/dev/null | grep -qx linux_raid_member; then
+      MD_PARTS+=("$p")
+    fi
+  done
+done
 mdadm --assemble /dev/md0 "${MD_PARTS[@]}" >/dev/null 2>&1 || true
 mkdir -p /mnt/check/boot
 mount /dev/md0 /mnt/check/boot 2>/dev/null || true
