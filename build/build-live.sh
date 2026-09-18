@@ -64,13 +64,33 @@ log "${avail_gb}G free under $OUT"
 # --------------------------------------------------------------------- live-build config tree
 
 stage "Preparing the live-build config tree at $LBWORK"
-rm -rf "$LBWORK"
+# A previous build leaves root-owned files (live-build runs as root inside the
+# container), so a plain rm -rf dies with permission denied. Retry the removal
+# from a throwaway root container; fall back to telling the operator the
+# sudo command when the tree lives outside the bind-mounted $OUT.
+if [[ -e "$LBWORK" ]]; then
+  if ! rm -rf "$LBWORK" 2>/dev/null; then
+    case "$LBWORK" in
+      "$OUT"/*)
+        warn "config tree has root-owned leftovers — removing via a root container"
+        docker run --rm -v "$OUT:/out" alpine rm -rf "/out/${LBWORK#"$OUT"/}" \
+          || die "could not clear $LBWORK (try: sudo rm -rf $LBWORK)"
+        ;;
+      *)
+        die "cannot clear $LBWORK (root-owned leftovers outside $OUT) — try: sudo rm -rf $LBWORK"
+        ;;
+    esac
+    [[ -e "$LBWORK" ]] && die "could not clear $LBWORK (try: sudo rm -rf $LBWORK)"
+    log "stale config tree cleared"
+  fi
+fi
 mkdir -p "$LBWORK/config/package-lists" \
          "$LBWORK/config/includes.chroot/usr/local/sbin" \
          "$LBWORK/config/includes.chroot/etc/zfs-stamp/profiles" \
          "$LBWORK/config/includes.chroot/etc/ssh/sshd_config.d" \
          "$LBWORK/config/includes.chroot/etc/systemd/system" \
          "$LBWORK/config/includes.chroot/etc/profile.d" \
+         "$LBWORK/config/includes.chroot/root" \
          "$LBWORK/config/archives" \
          "$LBWORK/config/hooks/normal"
 
