@@ -10,6 +10,7 @@
 #   2. disable hibernation unconditionally (DESIGN.md §8.1)
 #   3. install the identity-sealing unit (DESIGN.md §11)
 #   4. enable the services the design depends on
+#   5. generate the es_BO.UTF-8 locale and make it the default
 
 set -eu
 
@@ -79,6 +80,20 @@ cat > "$TARGET/etc/default/zfs-stamp-cmdline" <<'EOF'
 # load the crypto modules from the initramfs, and then write to
 # /sys/module/zswap/parameters/enabled — not worth it for the marginal gain.
 zswap.enabled=1
+EOF
+
+echo "==> golden-customize: generating the es_BO.UTF-8 locale"
+# `locales` is in golden-packages.list, but a fresh mmdebstrap root only has C.UTF-8
+# until a locale is generated. Uncomment (or append) the entry, generate just that
+# locale, and make it the system default.
+if grep -q '^[#[:space:]]*es_BO\.UTF-8 UTF-8' "$TARGET/etc/locale.gen"; then
+  sed -i 's/^[#[:space:]]*es_BO\.UTF-8 UTF-8/es_BO.UTF-8 UTF-8/' "$TARGET/etc/locale.gen"
+else
+  printf '%s\n' 'es_BO.UTF-8 UTF-8' >> "$TARGET/etc/locale.gen"
+fi
+$ROOT locale-gen es_BO.UTF-8
+cat > "$TARGET/etc/default/locale" <<'EOF'
+LANG=es_BO.UTF-8
 EOF
 
 echo "==> golden-customize: installing the identity-sealing unit"
