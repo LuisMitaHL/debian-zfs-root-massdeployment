@@ -527,23 +527,32 @@ EOF
     printf '  would install: /etc/hostid -> %s/etc/hostid\n' "$MNT" >&2
   fi
 
-  # Addressing.
-  if [[ "$ADDRESS" == "static" ]]; then
-    if (( APPLY )); then
-      mkdir -p "$MNT/etc/systemd/network"
+  # Addressing (systemd-networkd backend). Always write 10-wired.network: networkd with
+  # no .network files does nothing, so the DHCP path must write DHCP=yes explicitly —
+  # relying on the "golden image default" left DHCP machines with no address.
+  if (( APPLY )); then
+    mkdir -p "$MNT/etc/systemd/network"
+    if [[ "$ADDRESS" == "static" ]]; then
       {
         printf '[Match]\nName=en*\n\n[Network]\n'
         printf 'Address=%s/%s\n' "$IPV4" "$CIDR"
         printf 'Gateway=%s\n' "$GATEWAY"
         [[ -n "$DNS" ]] && printf 'DNS=%s\n' "$DNS"
       } > "$MNT/etc/systemd/network/10-wired.network"
-      chroot "$MNT" systemctl enable systemd-networkd
     else
+      {
+        printf '[Match]\nName=en*\n\n[Network]\n'
+        printf 'DHCP=yes\n'
+      } > "$MNT/etc/systemd/network/10-wired.network"
+    fi
+    chroot "$MNT" systemctl enable systemd-networkd
+  else
+    if [[ "$ADDRESS" == "static" ]]; then
       printf '  would write: %s/etc/systemd/network/10-wired.network (static %s/%s)\n' \
         "$MNT" "$IPV4" "$CIDR" >&2
+    else
+      printf '  would write: %s/etc/systemd/network/10-wired.network (DHCP)\n' "$MNT" >&2
     fi
-  else
-    log "addressing: DHCP (golden image default)"
   fi
 
   # fstab: /boot and the ESP live outside the pool. ZFS datasets are mounted by zfs-mount.
@@ -899,6 +908,35 @@ stage_verify() {
     else
       ok "zram disabled (no [zram0] section, overriding the vendor default)"
     fi
+  fi
+
+  # 9. Network must match the profile. networkd with no .network file does nothing, so a
+  #    missing file means no address at boot (this is how DHCP machines lost networking).
+  local nw="$MNT/etc/systemd/network/10-wired.network"
+  if [[ ! -s "$nw" ]]; then
+    warn "10-wired.network missing — systemd-networkd would configure no interface"
+    bad=1
+  elif [[ "$ADDRESS" == "static" ]]; then
+    if grep -qE "^Address=${IPV4}/${CIDR}$" "$nw"; then
+      ok "10-wired.network carries static ${IPV4}/${CIDR}"
+    else
+      warn "10-wired.network has no Address=${IPV4}/${CIDR} line — static IP would not apply"
+      bad=1
+    fi
+  else
+    if grep -qE '^DHCP=yes$' "$nw"; then
+      ok "10-wired.network enables DHCP"
+    else
+      warn "10-wired.network has no DHCP=yes — the DHCP machine would boot with no address"
+      bad=1
+    fi
+  fi
+  if [[ -L "$MNT/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" ]] \
+    || [[ -L "$MNT/etc/systemd/system/sockets.target.wants/systemd-networkd.socket" ]]; then
+    ok "systemd-networkd enabled"
+  else
+    warn "systemd-networkd NOT enabled — /etc/systemd/network/10-wired.network would be ignored"
+    bad=1
   fi
 
   if (( bad )); then

@@ -41,7 +41,7 @@ nothing to break offline.
 | `ZSWAP` | `yes` on `mini`, `no` on `server` | compressed cache in front of swap |
 | `ZRAM` | `no` on `mini`, `yes` on `server` | RAM-only compressed swap |
 | `ZRAM_SIZE` | `ram / 2` | **an expression in MiB, not a percentage** — see note below |
-| `ADDRESS` | `dhcp` | `dhcp` \| `static` |
+| `ADDRESS` | `dhcp` | `dhcp` \| `static` — applied via `systemd-networkd` (`/etc/systemd/network/10-wired.network`) |
 | `SERIAL_CONSOLE` | empty | e.g. `ttyS0,115200`; enables GRUB + kernel + getty on serial |
 | `IPV4`, `CIDR`, `GATEWAY`, `DNS` | empty | required when `ADDRESS=static` |
 | `GOLDEN_STREAM` | `/media/carrier/rpool.stream.zst` | path to the `zfs send` payload on the carrier |
