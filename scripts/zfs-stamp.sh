@@ -41,6 +41,11 @@ SERIAL_UNIT=""
 SERIAL_SPEED=""
 LUKS_KEYFILE=""
 DROPBEAR_AUTHORIZED_KEYS=""
+# Optional login user with sudo (empty USERNAME = root-only, as before).
+USERNAME=""
+USER_PASSWORD_HASH=""
+USER_AUTHORIZED_KEYS=""
+USER_SHELL="/bin/bash"
 CRYPTTAB_LINES=()
 GOLDEN_STREAM="/media/carrier/rpool.stream.zst"
 BOOT_PAYLOAD="/media/carrier/boot.tar.zst"
@@ -157,6 +162,25 @@ validate_profile() {
     [[ -n "$IPV4" && -n "$CIDR" && -n "$GATEWAY" ]] || die "static addressing needs IPV4, CIDR, GATEWAY"
   fi
 
+  # Optional login user. The password is a pre-computed hash (openssl passwd -6) —
+  # never plaintext: the profile lives on the carrier USB.
+  if [[ -z "$USERNAME" ]]; then
+    [[ -z "$USER_PASSWORD_HASH" && -z "$USER_AUTHORIZED_KEYS" ]] \
+      || die "USER_PASSWORD_HASH/USER_AUTHORIZED_KEYS need USERNAME"
+  else
+    [[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$USERNAME" != "root" ]] \
+      || die "bad USERNAME: $USERNAME"
+    [[ "$USER_SHELL" == /* ]] || die "USER_SHELL must be an absolute path"
+    if [[ -z "$USER_PASSWORD_HASH" && -z "$USER_AUTHORIZED_KEYS" ]]; then
+      die "USERNAME=$USERNAME has neither password hash nor SSH key — the account could never log in"
+    fi
+    [[ -z "$USER_PASSWORD_HASH" || "$USER_PASSWORD_HASH" =~ ^\$[0-9a-z]+\$.+ ]] \
+      || die "USER_PASSWORD_HASH must be a crypt hash like \$6\$salt\$hash (openssl passwd -6)"
+    if [[ -n "$USER_AUTHORIZED_KEYS" ]]; then
+      [[ -r "$USER_AUTHORIZED_KEYS" ]] || die "USER_AUTHORIZED_KEYS not readable: $USER_AUTHORIZED_KEYS"
+    fi
+  fi
+
   # Serial console. Debian servers are headless, so the LUKS prompt and the boot log have to
   # be reachable somewhere other than a monitor; GRUB needs the unit and speed separately.
   if [[ -n "$SERIAL_CONSOLE" ]]; then
@@ -212,6 +236,7 @@ show_plan() {
   swap ............ $SWAP ${SWAP:+($SWAP_SIZE)}   zswap=$ZSWAP  zram=$ZRAM
   address ......... $ADDRESS ${IPV4:+$IPV4/$CIDR}
   serial console .. ${SERIAL_CONSOLE:-none (VGA only)}
+  login user ...... ${USERNAME:-none (root only)}
 
   Layout per disk:
     p1  $ESP_SIZE   EF00  ESP (FAT32)
@@ -755,6 +780,46 @@ stage_dropbear() {
   ok "dropbear remote unlock configured"
 }
 
+# Optional login user with sudo. Empty USERNAME = root-only, as before.
+# Sudo membership needs the sudo group, i.e. the sudo package in the golden
+# image (build/golden-packages.list) — usermod fails loudly without it.
+stage_user() {
+  [[ -n "$USERNAME" ]] || { log "no login user requested (USERNAME empty)"; return 0; }
+  stage "Login user '$USERNAME' (sudo)"
+  if (( APPLY )); then
+    if chroot "$MNT" id "$USERNAME" >/dev/null 2>&1; then
+      die "user $USERNAME already exists in the target — refusing to change an existing account"
+    fi
+    chroot "$MNT" useradd -m -s "$USER_SHELL" "$USERNAME" \
+      || die "useradd failed for $USERNAME"
+    chroot "$MNT" usermod -aG sudo "$USERNAME" \
+      || die "usermod -aG sudo failed — is sudo installed in the golden image?"
+    if [[ -n "$USER_PASSWORD_HASH" ]]; then
+      printf '%s:%s\n' "$USERNAME" "$USER_PASSWORD_HASH" | chroot "$MNT" chpasswd -e \
+        || die "could not set password for $USERNAME"
+    else
+      log "no password hash — $USERNAME is SSH-key-only (password locked)"
+    fi
+    if [[ -n "$USER_AUTHORIZED_KEYS" ]]; then
+      # install(1) -o/-g would resolve the name on the HOST, where the user does
+      # not exist — install as root, then fix ownership inside the target so
+      # sshd StrictModes accepts ~/.ssh.
+      chroot "$MNT" mkdir -p "/home/$USERNAME/.ssh"
+      install -m 0600 "$USER_AUTHORIZED_KEYS" \
+        "$MNT/home/$USERNAME/.ssh/authorized_keys" \
+        || die "could not install authorized_keys for $USERNAME"
+      chroot "$MNT" chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.ssh" \
+        || die "could not fix ownership of /home/$USERNAME/.ssh"
+    fi
+    ok "user $USERNAME created with sudo"
+  else
+    printf '  would create: user %s (shell %s) in sudo group' "$USERNAME" "$USER_SHELL" >&2
+    [[ -n "$USER_PASSWORD_HASH" ]] && printf ', password from hash' >&2
+    [[ -n "$USER_AUTHORIZED_KEYS" ]] && printf ', authorized_keys from %s' "$USER_AUTHORIZED_KEYS" >&2
+    printf '\n' >&2
+  fi
+}
+
 # The initramfs must be regenerated LAST: it has to contain the target's crypttab, fstab
 # and dropbear authorized_keys, all of which are written in the stages above.
 stage_initramfs() {
@@ -937,6 +1002,46 @@ stage_verify() {
   else
     warn "systemd-networkd NOT enabled — /etc/systemd/network/10-wired.network would be ignored"
     bad=1
+  fi
+
+  # 10. Login user, if the profile asked for one.
+  if [[ -n "$USERNAME" ]]; then
+    if chroot "$MNT" id "$USERNAME" >/dev/null 2>&1; then
+      ok "login user $USERNAME exists"
+    else
+      warn "USERNAME=$USERNAME set but no such user in the target"
+      bad=1
+    fi
+    if chroot "$MNT" id -nG "$USERNAME" 2>/dev/null | grep -qw sudo; then
+      ok "$USERNAME is in the sudo group"
+    else
+      warn "$USERNAME is NOT in sudo — admin access would fail (is sudo in golden-packages.list?)"
+      bad=1
+    fi
+    if [[ -n "$USER_AUTHORIZED_KEYS" ]]; then
+      if [[ -s "$MNT/home/$USERNAME/.ssh/authorized_keys" ]]; then
+        ok "$USERNAME has an authorized_keys"
+      else
+        warn "authorized_keys missing for $USERNAME — SSH login would fail"
+        bad=1
+      fi
+    fi
+    pwfield="$(chroot "$MNT" getent shadow "$USERNAME" 2>/dev/null | cut -d: -f2)"
+    if [[ -n "$USER_PASSWORD_HASH" ]]; then
+      if [[ -n "$pwfield" && "$pwfield" != '!'* && "$pwfield" != '*' ]]; then
+        ok "$USERNAME has a password set"
+      else
+        warn "$USERNAME has no usable password despite USER_PASSWORD_HASH"
+        bad=1
+      fi
+    else
+      if [[ "$pwfield" == '!'* || "$pwfield" == '*' || -z "$pwfield" ]]; then
+        ok "$USERNAME password locked (SSH-key-only as configured)"
+      else
+        warn "$USERNAME has a password but none was configured — unexpected"
+        bad=1
+      fi
+    fi
   fi
 
   if (( bad )); then
@@ -1211,6 +1316,7 @@ main() {
   stage_boot_payload
   stage_chroot_config
   stage_dropbear
+  stage_user
   # grub-install needs the chroot's /dev, so it must run BEFORE stage_initramfs unmounts it.
   stage_grub
   stage_initramfs

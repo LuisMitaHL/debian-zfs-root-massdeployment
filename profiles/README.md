@@ -47,6 +47,10 @@ nothing to break offline.
 | `GOLDEN_STREAM` | `/media/carrier/rpool.stream.zst` | path to the `zfs send` payload on the carrier |
 | `BOOT_PAYLOAD` | `/media/carrier/boot.tar.zst` | kernel+initramfs payload for ext4 `/boot` |
 | `DROPBEAR_AUTHORIZED_KEYS` | empty | **required for remote unlock** — pubkey file the initramfs will accept |
+| `USERNAME` | empty (root-only) | login user to create with sudo; empty = none |
+| `USER_PASSWORD_HASH` | empty (locked) | crypt hash (`openssl passwd -6`) — never plaintext |
+| `USER_AUTHORIZED_KEYS` | empty | path on carrier to pubkey file → `~/.ssh/authorized_keys` |
+| `USER_SHELL` | `/bin/bash` | login shell (absolute path) |
 | `LUKS_KEYFILE` | empty | non-interactive `luksFormat`/`open`; automation only, never leave it on the carrier |
 
 ### `ZRAM_SIZE` is an expression, not a percentage
@@ -59,8 +63,24 @@ nothing to break offline.
 (`SWAP=none`, `ZRAM=yes`) leaves the machine with **no swap whatsoever**.
 `zfs-stamp.sh`'s verification stage rejects a percentage for this reason.
 
-### `SERIAL_CONSOLE` (headless machines)
+### Login user
 
+Empty `USERNAME` means root-only, as before. When set, the stamp creates the user
+with `sudo` membership, so the `sudo` package must be in the golden image (it is —
+see `build/golden-packages.list`; a golden rebuild is required after adding it).
+
+At least one of password hash / SSH key is required, or the account could never
+log in. The hash is pre-computed — generate it with:
+
+```sh
+openssl passwd -6
+```
+
+and paste the `$6$...` string. Never put a plaintext password in a profile: the
+profile lives on the carrier USB. Single-quote the hash — it contains `$`
+characters that double quotes would expand when the profile is sourced.
+
+### `SERIAL_CONSOLE` (headless machines)
 Servers rarely have a monitor attached, and the LUKS passphrase prompt and the boot log need to
 be reachable. `SERIAL_CONSOLE="ttyS0,115200"` sets all three layers:
 

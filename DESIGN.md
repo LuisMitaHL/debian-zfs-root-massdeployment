@@ -400,13 +400,14 @@ Run from the live environment on the target:
 8. `grub-install` to **every** disk; one `efibootmgr` entry per disk (UEFI) and `EF02` for BIOS.
 9. **`update-grub`** — see §5.1. Without this the target has no menu and does not boot.
 10. Write the per-host profile values (hostname, address, swap/zram variant, serial console,
-    kernel command line).
+    kernel command line, optional login user with sudo).
 11. **`stage_verify`: refuse to report success on a target that cannot boot.** Checks that
     `grub.cfg` exists and names `root=ZFS=<pool>/ROOT/debian`, that `nohibernate` and the serial
     console are on the kernel line, that the initramfs contains cryptsetup/cryptroot/dropbear
     plus a dropbear host key, that each `crypttab` entry is keyed by LUKS UUID, that
-    `/etc/hostid` is per-machine, that `systemd-cryptsetup` is installed, and that the zram
-    configuration matches the class. A green `[ ok ] installed` now implies all of that.
+    `/etc/hostid` is per-machine, that `systemd-cryptsetup` is installed, that the zram
+    configuration matches the class, and that the login user (if any) exists with sudo.
+    A green `[ ok ] installed` now implies all of that.
 12. Seal identity at first boot (§11), then verify (§12).
 
 > **Why the verification stage exists.** The first stamped image reported

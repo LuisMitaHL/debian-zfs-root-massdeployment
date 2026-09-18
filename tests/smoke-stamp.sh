@@ -159,6 +159,10 @@ chmod 600 "$WORK/luks.key"
 # must point at one. Generate a throwaway key for the test.
 rm -f "$WORK/dropbear_key" "$WORK/dropbear_key.pub"
 ssh-keygen -q -t ed25519 -N '' -f "$WORK/dropbear_key"
+# Same for the login user: separate throwaway key plus a pre-hashed password.
+rm -f "$WORK/user_key" "$WORK/user_key.pub"
+ssh-keygen -q -t ed25519 -N '' -f "$WORK/user_key"
+USER_HASH="$(openssl passwd -6 -salt smokesalt smoke-test-password)"
 pass "carrier staged at /media/carrier"
 
 # --------------------------------------------------------------------- profile
@@ -178,6 +182,9 @@ ZRAM="yes"
 CRYPT="yes"
 LUKS_KEYFILE="$WORK/luks.key"
 DROPBEAR_AUTHORIZED_KEYS="$WORK/dropbear_key.pub"
+USERNAME="smokeuser"
+USER_PASSWORD_HASH="$USER_HASH"
+USER_AUTHORIZED_KEYS="$WORK/user_key.pub"
 ADDRESS="dhcp"
 SERIAL_CONSOLE="ttyS0,115200"
 EOF
@@ -275,6 +282,31 @@ if grep -qE "^zfs0 UUID=" /mnt/check/etc/crypttab 2>/dev/null \
   pass "crypttab identifies containers by LUKS UUID (device-name independent)"
 else
   fail "crypttab does not use UUID= — boot would depend on unstable device names"
+fi
+
+# Login user from the profile: exists, in sudo, key installed, password set.
+if grep -qE '^smokeuser:x:[0-9]+:[0-9]+:' /mnt/check/etc/passwd 2>/dev/null; then
+  pass "login user smokeuser exists"
+else
+  fail "login user smokeuser missing from the target passwd"
+fi
+if grep -qE '^sudo:[^:]*:[^:]*:.*smokeuser' /mnt/check/etc/group 2>/dev/null; then
+  pass "smokeuser is in the sudo group"
+else
+  fail "smokeuser is not in sudo (is sudo in golden-packages.list?)"
+fi
+if [[ -s /mnt/check/home/smokeuser/.ssh/authorized_keys ]] \
+   && grep -q "$(cut -d' ' -f2 "$WORK/user_key.pub")" \
+     /mnt/check/home/smokeuser/.ssh/authorized_keys; then
+  pass "smokeuser authorized_keys installed"
+else
+  fail "smokeuser authorized_keys missing or wrong"
+fi
+smoke_pw="$(grep -E '^smokeuser:' /mnt/check/etc/shadow 2>/dev/null | cut -d: -f2)"
+if [[ "$smoke_pw" == '$6$smokesalt$'* ]]; then
+  pass "smokeuser password hash applied"
+else
+  fail "smokeuser password hash missing (shadow field: '${smoke_pw:0:12}...')"
 fi
 
 # /boot lives on the md array; assemble and mount it so the initramfs can be inspected.

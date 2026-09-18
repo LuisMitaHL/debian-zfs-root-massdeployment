@@ -46,6 +46,9 @@ systemd-zram-generator
 # --- system / operations ---
 systemd
 systemd-resolved
+# Needed by zfs-stamp.sh stage_user (usermod -aG sudo): without the package there
+# is no sudo group and the stamp fails loudly.
+sudo
 openssh-server
 unattended-upgrades
 apt-listchanges
