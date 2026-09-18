@@ -117,6 +117,24 @@ for (( t = 0; t < DEADLINE; t++ )); do
   sleep 1
 done
 
+# Optional: log in after the prompt and run commands, so a degraded boot can be
+# inspected from inside (mdadm state, pool topology). Used for the single-disk
+# server boot: LOGIN_USER=smokeuser LOGIN_PASS=smoke-test-passphrase.
+# POST_CMDS defaults to a degraded-state dump.
+if (( up == 1 )) && [[ -n "${LOGIN_USER:-}" ]]; then
+  echo "  logging in as $LOGIN_USER"
+  printf '%s\n' "$LOGIN_USER" >&3
+  for (( t = 0; t < 30; t++ )); do
+    grep -qa "Password:" "$LOG" 2>/dev/null && break
+    sleep 1
+  done
+  printf '%s\n' "${LOGIN_PASS:-}" >&3
+  sleep 6
+  printf '%s\n' "${POST_CMDS:-mdadm --detail /dev/md0 | head -12; zpool status -x; zpool list; swapon --show; systemctl --failed --no-legend | head -5; echo POST_DONE}" >&3
+  sleep 20
+  echo "  post-boot commands sent"
+fi
+
 # Give the login prompt a moment to flush, then stop the guest from the monitor.
 sleep 8
 printf 'quit\n' >&4
