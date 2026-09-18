@@ -120,6 +120,9 @@ install -m 0644 "$REPO/live/sshd-live-root.conf"   "$LBWORK/config/includes.chro
 # Operator helper: fill a profile's DISKS from /dev/disk/by-id without retyping
 # full paths. Lives at repo root (tracked) and at /root on the live medium.
 install -m 0755 "$REPO/pick-disks.sh" "$LBWORK/config/includes.chroot/root/pick-disks.sh"
+# Operator helper: find the carrier partition by label and mount it at
+# /media/carrier. Lives in live/ (tracked) and at /root on the live medium.
+install -m 0755 "$REPO/live/mount-carrier.sh" "$LBWORK/config/includes.chroot/root/mount-carrier.sh"
 
 # Operator instructions, in BOTH places they can be useful:
 #   includes.binary/ -> copied verbatim into the ISO tree, so it is readable by simply mounting

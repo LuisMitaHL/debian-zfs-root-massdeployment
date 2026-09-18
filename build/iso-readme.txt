@@ -45,10 +45,9 @@ QUICK START
 
    sshd is already running; the password stops working at reboot.
 
-2. Plug in the carrier and mount it:
+2. Plug in the carrier and mount it (autodetected by label):
 
-       sudo mkdir -p /media/carrier
-       sudo mount LABEL=CARRIER /media/carrier
+       sudo /root/mount-carrier.sh
 
 3. Look at what it proposes to do. THIS IS A DRY RUN BY DEFAULT and writes
    nothing:
