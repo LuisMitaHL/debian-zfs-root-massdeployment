@@ -120,6 +120,12 @@ cat > "$TARGET/etc/default/locale" <<'EOF'
 LANG=es_BO.UTF-8
 EOF
 
+echo "==> golden-customize: timezone America/La_Paz"
+# tzdata is in golden-packages.list. Symlink + timezone file is the Debian mechanism
+# (what dpkg-reconfigure tzdata writes); no daemon reconfiguration needed.
+ln -sf /usr/share/zoneinfo/America/La_Paz "$TARGET/etc/localtime"
+printf '%s\n' 'America/La_Paz' > "$TARGET/etc/timezone"
+
 echo "==> golden-customize: dropbear unlock on port 2222 (not 22)"
 # Upstream mechanism (README.initramfs): DROPBEAR_OPTIONS in this file is baked into
 # every initrd by update-initramfs — which the stamp re-runs per machine, so the port
