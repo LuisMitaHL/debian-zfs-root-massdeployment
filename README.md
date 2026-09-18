@@ -46,7 +46,7 @@ fields in a **profile file**, never a fork of the image.
 | [`build/build-golden.sh`](build/build-golden.sh) | builds the golden ZFS dataset and the `/boot` payload |
 | [`build/golden-packages.list`](build/golden-packages.list) | base packages baked into the image |
 | [`build/golden-customize.sh`](build/golden-customize.sh) | mmdebstrap hook: backports ZFS, no-hibernation, sealing unit |
-| [`build/build-live.sh`](build/build-live.sh) | builds the live installer medium (USB ISO) |
+| [`build/build-live.sh`](build/build-live.sh) | builds the live installer medium (USB ISO, with sshd + per-boot root password) |
 | [`tests/smoke-stamp.sh`](tests/smoke-stamp.sh) | end-to-end test of the whole pipeline inside a throwaway VM |
 | [`tests/installer-qemu.sh`](tests/installer-qemu.sh) | drives the real installer ISO in QEMU over serial and stamps a disk |
 | [`tests/boot-stamped.sh`](tests/boot-stamped.sh) | boots a stamped image in QEMU and answers the LUKS prompt over serial |

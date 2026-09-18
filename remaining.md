@@ -47,7 +47,7 @@ The ISO is **static**; the golden image and per-host profiles live on a second p
 | `research/*.md` | 5 primary-source research documents (cited, UNVERIFIED-marked) |
 | `build/verify-host.sh` | build-host capability check |
 | `build/build-golden.sh` | builds the golden ZFS dataset + `/boot` payload; `--native` runs without Docker |
-| `build/build-live.sh` | builds the installer ISO |
+| `build/build-live.sh` | builds the installer ISO (USB, sshd with per-boot root password) |
 | `build/golden-customize.sh` | mmdebstrap `--customize-hook` (backports ZFS, no-hibernation, sealing unit) |
 | `build/golden-packages.list` | base packages for the golden image |
 | `scripts/zfs-stamp.sh` | **the stamping script** — runs in the live env, dry-run by default |

@@ -1,0 +1,12 @@
+[Unit]
+Description=Generate ephemeral SSH root password for the live installer
+After=network-online.target ssh.service
+Wants=network-online.target
+Before=getty@tty1.service serial-getty@ttyS0.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/live-ssh-setup.sh
+
+[Install]
+WantedBy=multi-user.target
