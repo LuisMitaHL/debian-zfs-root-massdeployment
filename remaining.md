@@ -47,7 +47,7 @@ The ISO is **static**; the golden image and per-host profiles live on a second p
 | `research/*.md` | 5 primary-source research documents (cited, UNVERIFIED-marked) |
 | `build/verify-host.sh` | build-host capability check |
 | `build/build-golden.sh` | builds the golden ZFS dataset + `/boot` payload; `--native` runs without Docker |
-| `build/build-live.sh` | builds the installer ISO + netboot payload |
+| `build/build-live.sh` | builds the installer ISO |
 | `build/golden-customize.sh` | mmdebstrap `--customize-hook` (backports ZFS, no-hibernation, sealing unit) |
 | `build/golden-packages.list` | base packages for the golden image |
 | `scripts/zfs-stamp.sh` | **the stamping script** — runs in the live env, dry-run by default |
@@ -60,8 +60,11 @@ The ISO is **static**; the golden image and per-host profiles live on a second p
 | `tests/inspect-stamped.sh` | assembles a stamped image offline and dumps its boot-critical config |
 
 Build artifacts (not in git, large): `out/debian-zfs-installer.iso` (~998 MB),
-`out/netboot.tar.gz` (~988 MB), `out/lb-cache/` (~890 MB), `out/live-build/`,
+`out/lb-cache/` (~890 MB), `out/live-build/`,
 `out/build-live.log`.
+
+> Note: the PXE/netboot flow was dropped (ISO-only by decision). `out/netboot.tar.gz`
+> and `tests/pxe-qemu.sh` are gone; §5.4 is kept as history.
 
 ---
 
@@ -114,8 +117,7 @@ zpool list; losetup -a; dmsetup ls; grep -E "/mnt/(scratch|inspect)" /proc/mount
 Every row below was executed; the evidence is a log or console capture in the VM.
 
 1. **The ISO builds** — 998 MiB bootable hybrid (`iso-hybrid`, syslinux + grub-efi), ~16 min
-   with a warm cache. **The netboot/PXE payload also builds** — `out/netboot.tar.gz`, 988 MB
-   (booted in QEMU via `tests/pxe-qemu.sh`; a real DHCP/TFTP server is still untested — see §5.4).
+   with a warm cache.
 2. **The package cache persists** — 890 MB in `out/lb-cache/`. The speedup itself is unmeasured.
 3. **The ISO boots**, both ways. **Prefer BIOS for automated testing** — no OVMF, no NVRAM, no
    `vars.fd`.
@@ -142,12 +144,7 @@ Every row below was executed; the evidence is a log or console capture in the VM
    stall), and it is now in `build/golden-packages.list`.
 9. **by-id paths behave**; partitions are addressed as `<by-id>-part<N>`.
 10. **OpenZFS 2.4.4 compiles via DKMS** against the stock 6.12 kernel and loads.
-11. **The netboot payload PXE-boots.** `tests/pxe-qemu.sh` boots `out/netboot.tar.gz` through
-    QEMU's built-in DHCP/BOOTP + TFTP (pxelinux → kernel → initrd) and fetches the 867 MB
-    `filesystem.squashfs` over HTTP, reaching `Debian GNU/Linux 13 debian ttyS0` in 77 s. The
-    payload needs `fetch=http://…/filesystem.squashfs` added to its kernel command line — see
-    §5.4 — and a real DHCP/TFTP server is still untested.
-12. **Everything on the boot path is now confirmed from the stamped machine's own journal**, not
+11. **Everything on the boot path is now confirmed from the stamped machine's own journal**, not
     just from the console. One boot produced:
 
     ```
@@ -202,9 +199,12 @@ The ISO boots UEFI fine by hand, but an automated run ends at `Shell>`: the reus
 `/usr/share/OVMF/OVMF_VARS_4M.fd` per run **and** `-boot order=d`. BIOS works today and is what
 `tests/boot-stamped.sh` uses; this is only worth fixing if you need UEFI coverage.
 
-### 5.4 Netboot payload PXE-boots in QEMU, but needs a real server and a transport parameter
+### 5.4 Netboot/PXE flow — dropped (kept as history)
 
-`out/netboot.tar.gz` (988 MB) **is produced** — the earlier
+Decision: ISO-only. `build/build-live.sh` no longer builds `out/netboot.tar.gz` and
+`tests/pxe-qemu.sh` is deleted. What follows describes the old flow so nobody re-litigates it.
+
+`out/netboot.tar.gz` (988 MB) **was produced** — the earlier
 `lb binary_linux-image: cp: cannot stat 'chroot/boot/vmlinuz-*'` failure was fixed by using
 `--bootloaders syslinux` (grub-* is rejected for `--binary-images netboot`).
 
@@ -385,8 +385,7 @@ Each of these cost a debugging cycle and is verified.
     done
     ```
 20. **Useful env vars**: `SKIP_GOLDEN=1`, `KEEP_TARGET=1`, `CACHE_DIR=`, `OUT=`, `GOLDEN_WORK=`,
-    `REPO=` (for `tests/installer-qemu.sh`), `DEADLINE=` (for `tests/boot-stamped.sh` and
-    `tests/pxe-qemu.sh`).
+    `REPO=` (for `tests/installer-qemu.sh`), `DEADLINE=` (for `tests/boot-stamped.sh`).
 
 ---
 
@@ -431,11 +430,9 @@ from the copy baked into the ISO, so a script change is testable in ~15 min inst
 2. **Boot the server profile** (mirror, mdadm `/boot`, zram) — §5.6. Extend
    `tests/boot-stamped.sh` to attach two disks; the mdadm/GRUB path is the least-tested part of
    the design.
-3. **Serve the netboot payload from a real DHCP/TFTP/HTTP server** — §5.4. The payload itself is
-   proven bootable; only the site-side plumbing is missing. Decide where the `fetch=` URL lives.
-4. **The export wart** — §5.5, if you care. It is cosmetic and the diagnostics are ready.
-5. **UEFI automated test** — §5.3 (lowest value; BIOS covers the logic).
-6. **Run the acceptance gate on real hardware** — `DESIGN.md` §14.
+3. **The export wart** — §5.5, if you care. It is cosmetic and the diagnostics are ready.
+4. **UEFI automated test** — §5.3 (lowest value; BIOS covers the logic).
+5. **Run the acceptance gate on real hardware** — `DESIGN.md` §14.
 
 ---
 

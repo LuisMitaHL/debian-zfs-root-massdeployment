@@ -32,8 +32,7 @@ Objective: provision Debian 13 root-on-ZFS fast, mobile, one operator
 │  Root cause of slowness: manual labour; no persistent caches on site
 │
 ├── DELIVERY
-│   ├── Install medium ....... custom Debian live-build image (contrib enabled)
-│   ├── Same build → USB (iso-hybrid) and PXE (netboot tarball)
+│   ├── Install medium ....... custom Debian live-build USB image (iso-hybrid, contrib enabled)
 │   ├── Golden root .......... built once (mmdebstrap), stamped via zfs send/recv
 │   └── Build host ........... Debian container on the Arch box; ZFS native on host
 │
@@ -70,7 +69,8 @@ Objective: provision Debian 13 root-on-ZFS fast, mobile, one operator
 
 Deliberately **rejected**: `debian-installer` preseed for ZFS root (no `partman-zfs` in trixie,
 no `zfs` preseed method — it cannot be done); ZFS native encryption (found buggy in testing);
-`bpool`; ZFSBootMenu; hibernation.
+`bpool`; ZFSBootMenu; hibernation; PXE/netboot (ISO-only by decision — one medium to build,
+test and carry).
 
 ## 3. Hardware classes
 
@@ -362,36 +362,9 @@ Pipeline:
 
 **Live medium:** a second `live-build` run produces the installer environment — a Debian live
 image with `--archive-areas "main contrib non-free-firmware"`, `zfsutils-linux` + `zfs-dkms`
-built at image-build time, the stamping script, and the golden stream. Outputs:
+built at image-build time, the stamping script, and the golden stream. Output:
 
 - `iso-hybrid` with `--bootloaders "syslinux,grub-efi"` → written to USB.
-- `-b netboot` → `tftpboot/` + `filesystem.squashfs` → PXE for sites where that is easier.
-  Note `--bootloaders syslinux`: live-build rejects `grub-*` for `--binary-images netboot`.
-
-### 9.1 The netboot payload needs a root-filesystem transport
-
-`lb config -b netboot` produces `tftpboot/` (pxelinux + kernel + initrd) and
-`debian-live/live/filesystem.squashfs`, but the kernel command line it bakes into
-`tftpboot/live.cfg` is only
-
-```
-append boot=live components console=tty0 console=ttyS0,115200
-```
-
-— there is **no transport for the root filesystem**, and the squashfs is not in `tftpboot/` at
-all. As shipped, the payload gets as far as loading the kernel and initrd over TFTP and then has
-no root to mount. `live-boot(7)` documents `fetch=URL` ("webbooting") for exactly this, so a
-usable PXE setup appends
-
-```
-fetch=http://<server>/<path>/filesystem.squashfs
-```
-
-(HTTP, because TFTP-serving a ~900 MB squashfs is not sensible; the Live Manual's NFS recipe
-relies on `--net-root-*` flags that trixie's `live-build` has **obsoleted**.) `tests/pxe-qemu.sh`
-boots the payload this way. Whether `build-live.sh` should bake `fetch=` in at build time — and
-with which server — is an open question; it needs a site-specific URL, so it is more likely a
-carrier/profile concern like everything else.
 
 **Carried on one USB:** live environment + stamping script + golden stream + the `/boot`
 payload. Nothing is fetched at install time.

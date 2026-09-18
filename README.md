@@ -21,7 +21,7 @@ The agreed design is in **[DESIGN.md](DESIGN.md)**. The primary-source research 
                        boot.tar.zst      │
                                          ├──► live env + stamp script ──► zfs-stamp.sh
    build-live.sh ───► installer.iso ─────┘                                  ├─ partition
-                      netboot.tar.gz                                       ├─ mdadm /boot
+                                                                           ├─ mdadm /boot
                                                                            ├─ LUKS2
                                                                            ├─ zpool create
                                                                            ├─ zfs recv
@@ -46,7 +46,7 @@ fields in a **profile file**, never a fork of the image.
 | [`build/build-golden.sh`](build/build-golden.sh) | builds the golden ZFS dataset and the `/boot` payload |
 | [`build/golden-packages.list`](build/golden-packages.list) | base packages baked into the image |
 | [`build/golden-customize.sh`](build/golden-customize.sh) | mmdebstrap hook: backports ZFS, no-hibernation, sealing unit |
-| [`build/build-live.sh`](build/build-live.sh) | builds the live installer medium (USB + PXE) |
+| [`build/build-live.sh`](build/build-live.sh) | builds the live installer medium (USB ISO) |
 | [`tests/smoke-stamp.sh`](tests/smoke-stamp.sh) | end-to-end test of the whole pipeline inside a throwaway VM |
 | [`tests/installer-qemu.sh`](tests/installer-qemu.sh) | drives the real installer ISO in QEMU over serial and stamps a disk |
 | [`tests/boot-stamped.sh`](tests/boot-stamped.sh) | boots a stamped image in QEMU and answers the LUKS prompt over serial |
@@ -92,9 +92,7 @@ both would produce broken or identity-cloned machines.
 sudo ./build/build-live.sh
 ```
 
-Produces `out/debian-zfs-installer.iso` (~998 MiB hybrid, syslinux + grub-efi) and
-`out/netboot.tar.gz` (~988 MiB, `--bootloaders syslinux` — grub is rejected for
-`--binary-images netboot`).
+Produces `out/debian-zfs-installer.iso` (~998 MiB hybrid, syslinux + grub-efi).
 
 ### 3. Prepare the carrier USB
 
@@ -112,7 +110,7 @@ Profiles default to exactly those paths.
 
 ### 4. Stamp a machine
 
-Copy the profile onto the carrier, boot the target from the USB (or PXE), then:
+Copy the profile onto the carrier, boot the target from the USB, then:
 
 ```sh
 sudo /usr/local/sbin/zfs-stamp.sh --profile /etc/zfs-stamp/profiles/server-mirror.conf
@@ -130,7 +128,7 @@ one disk removed).
 
 ## Testing in a throwaway VM
 
-Three tests, in increasing order of convincingness. All run in the Incus VM, none touch real
+Four tests, in increasing order of convincingness. All run in the Incus VM, none touch real
 hardware.
 
 | Test | What it does | Roughly |
@@ -138,7 +136,6 @@ hardware.
 | [`tests/smoke-stamp.sh`](tests/smoke-stamp.sh) | stamps loop-backed "disks" with the real script | ~15 min (DKMS dominates; `SKIP_GOLDEN=1` to skip) |
 | [`tests/installer-qemu.sh`](tests/installer-qemu.sh) | boots the real ISO in QEMU/BIOS, logs in over serial, stamps one 16 G disk | ~15 min |
 | [`tests/boot-stamped.sh`](tests/boot-stamped.sh) | boots the stamped image in QEMU/BIOS and types the LUKS passphrase over serial | ~1 min |
-| [`tests/pxe-qemu.sh`](tests/pxe-qemu.sh) | PXE-boots `out/netboot.tar.gz` via QEMU's built-in DHCP/TFTP + a local HTTP server | ~3 min |
 | [`tests/inspect-stamped.sh`](tests/inspect-stamped.sh) | assembles a stamped image offline and dumps its boot-critical config | ~30 s |
 
 ```sh
@@ -192,7 +189,6 @@ Everything below was executed in the test VM; the artifacts are the QEMU console
 | **The stamped machine boots**: GRUB menu → kernel → `Please unlock disk zfs0` → `cryptsetup: zfs0: set up successfully` → `Debian GNU/Linux 13 mini01 ttyS0` → `login:`, in **27 s** | `tests/boot-stamped.sh` |
 | **The booted machine's own journal confirms the plumbing**: `root=ZFS=rpool/ROOT/debian … nohibernate zswap.enabled=1 console=tty0 console=ttyS0,115200`; `zswap: loaded using pool lzo/zsmalloc`; `systemd-makefs: /dev/mapper/swap successfully formatted as swap`; `Activated swap dev-mapper-swap.swap`; **0** dependency failures or timeouts | `journalctl -D <root>/var/log/journal -b` |
 | `crypttab` is keyed by **LUKS UUID**, so the boot does not depend on device names | locked container opened by UUID at boot |
-| **The netboot payload PXE-boots**: pxelinux → kernel → initrd over TFTP, then the 867 MB squashfs over HTTP, live login in 77 s | `tests/pxe-qemu.sh` |
 | The **ISO carries `/README.txt`** at its root (and `/root/README.txt` in the live session), byte-identical to `build/iso-readme.txt` | `isoinfo -x '/README.TXT;1'` |
 | **OpenZFS 2.4.4 compiles via DKMS** against the stock 6.12 kernel | `find … -name 'zfs.ko*'` |
 | The initramfs contains **cryptsetup + dropbear** (6 / 7 entries) and a per-machine dropbear host key | `lsinitramfs` |
@@ -281,7 +277,6 @@ local cache cannot.
 | **Real hardware** | Everything was tested in QEMU. `DESIGN.md` §14 (identity uniqueness across two machines, single-disk boot, mdadm degradation) has never run on a physical machine. |
 | UEFI automated test | The stamped image has only been booted on **BIOS**. UEFI booting of the ISO works, but the automated UEFI test drops to the firmware shell because the reused `vars.fd` accumulates NVRAM entries; use a fresh `OVMF_VARS_4M.fd` per run and `-boot order=d`. |
 | **`/etc/hostid` vs the pool-label hostid** | `zgenhostid` writes the file; whether it updates the running kernel hostid ZFS reads is unclear. Symptom if it matters: "pool may be in use from other system" → one-off `zpool import -f`. The stamped image did boot, so it is at least not fatal. |
-| Netboot / PXE | `tests/pxe-qemu.sh` proves the payload boots in QEMU (QEMU's own DHCP/TFTP + HTTP). A **real** DHCP/TFTP/HTTP server serving bare metal is untested, and the payload needs `fetch=http://…/filesystem.squashfs` added — it ships without a root-filesystem transport. See [DESIGN.md §9.1](DESIGN.md). |
 | Server class end to end | Only the mini profile has been stamped and booted. mdadm RAID1 `/boot`, raidz topologies, and the zram path are exercised only by the loop-disk smoke test. |
 | `smoke-stamp.sh` status | It was 14/14 **before** `stage_finish` and the crypttab-UUID change landed, and has not been green since — the VM rebooted mid-run twice. Its assertions have been updated for the new `stage_verify` stage and the root-dataset layout, plus new ones for `grub.cfg`, `systemd-cryptsetup` and zram, but it has not been re-run to green. See `remaining.md` §5.1 and §5.2. |
 | Cache speedup | The 890 MB cache is populated; the second-build speedup has not been measured. |

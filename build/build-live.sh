@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-live.sh — build the Debian live installer medium (USB image + PXE netboot payload).
+# build-live.sh — build the Debian live installer medium (USB iso-hybrid image).
 #
 # The live medium carries: a Debian trixie environment with ZFS available, the stamping
 # scripts, and the per-host profiles. It does NOT carry the golden stream — that lives on a
@@ -10,11 +10,9 @@
 #
 # Outputs (in $OUT):
 #   debian-zfs-installer.iso        hybrid image, write to USB with dd
-#   netboot.tar.gz                  tftpboot/ for PXE
 #
 # STATUS: first draft, never executed. live-build needs privileged loop/mount access —
-# run build/verify-host.sh first. TODO-VALIDATE: confirm --bootloaders and netboot flag names
-# against trixie's live-build; the Live Manual's --net-root-* flags are stale.
+# run build/verify-host.sh first.
 
 set -Eeuo pipefail
 
@@ -187,33 +185,14 @@ docker run --rm --privileged \
 
     echo "==> collecting the ISO"
     cp live-image-amd64.hybrid.iso /out/debian-zfs-installer.iso
-
-    echo "==> lb config (netboot) + build"
-    # netboot images are PXE-only: live-build rejects grub-* bootloaders for netboot,
-    # syslinux/pxelinux is the only valid choice there.
-    if lb clean --binary \
-       && lb config --binary-images netboot --bootloaders syslinux \
-       && lb build; then
-      gzip -c live-image-amd64.netboot.tar > /out/netboot.tar.gz
-      echo "==> netboot payload collected"
-    else
-      echo "WARNING: netboot build failed (the ISO is still produced)"
-    fi
   '
 
 [[ -f "$OUT/debian-zfs-installer.iso" ]] || die "live-build did not produce an ISO (see log above)"
 log "wrote $OUT/debian-zfs-installer.iso ($(du -h "$OUT/debian-zfs-installer.iso" | cut -f1))"
 
-if [[ -f "$OUT/netboot.tar.gz" ]]; then
-  log "wrote $OUT/netboot.tar.gz ($(du -h "$OUT/netboot.tar.gz" | cut -f1))"
-else
-  warn "netboot tarball not produced — check the live-build flags (TODO-VALIDATE)"
-fi
-
 stage "Done"
 cat >&2 <<EOF
   USB image : $OUT/debian-zfs-installer.iso
-  PXE       : $OUT/netboot.tar.gz
 
   Next: write the ISO to the carrier USB and add the golden artifacts on a second
   partition. See README.md.
