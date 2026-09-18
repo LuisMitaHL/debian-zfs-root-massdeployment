@@ -58,7 +58,7 @@ SAMPLE_REJECT=""
 discover() {
   # $1 = 1 to consult lsblk, 0 for name-heuristic fallback (no sizes, no checks).
   local use_lsblk="$1"
-  local p b node info
+  local p b node info ltype lsize lmodel ltran lrm
   for p in "$BYID"/*; do
     # NOTE: entries here are *always* symlinks — that is normal. A symlink whose
     # target does not exist in this namespace (dangling) is unusable: skip it.
@@ -74,16 +74,24 @@ discover() {
     fi
     info=""
     if (( use_lsblk )); then
-      info="$(lsblk -dnro TYPE,SIZE,MODEL,TRAN,RM "$node" 2>/dev/null || true)"
-      [[ -n "$info" ]] && N_LSBLK_OUT=$((N_LSBLK_OUT + 1))
+      # One column per call. lsblk separates columns with spaces (and escapes
+      # spaces inside values as \x20), so a multi-column parse would shift
+      # whenever a middle column is empty.
+      ltype="$(lsblk -dnro TYPE "$node" 2>/dev/null || true)"
       # Whole disks only — but take multipath nodes too (TYPE=mpath), they are
       # stampable block devices just like plain disks.
-      case "${info%%|*}" in
+      case "$ltype" in
         disk|mpath) ;;
         *) N_REJECTED=$((N_REJECTED + 1))
-           [[ -z "$SAMPLE_REJECT" ]] && SAMPLE_REJECT="$b -> $node (lsblk: '${info:-no output}')"
+           [[ -z "$SAMPLE_REJECT" ]] && SAMPLE_REJECT="$b -> $node (lsblk type: '${ltype:-no output}')"
            continue ;;
       esac
+      N_LSBLK_OUT=$((N_LSBLK_OUT + 1))
+      lsize="$(lsblk -dnro SIZE "$node" 2>/dev/null || true)"
+      lmodel="$(lsblk -dnro MODEL "$node" 2>/dev/null || true)"
+      ltran="$(lsblk -dnro TRAN "$node" 2>/dev/null || true)"
+      lrm="$(lsblk -dnro RM "$node" 2>/dev/null || true)"
+      info="$ltype|$lsize|${lmodel//\\x20/ }|$ltran|$lrm"
     fi
     NODE_ALIASES["$node"]+="$b "
     NODE_INFO["$node"]="$info"
