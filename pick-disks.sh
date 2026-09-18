@@ -46,22 +46,64 @@ grep -qE '^[[:space:]]*DISKS=\(' "$PROFILE" \
 # are never whole-disk targets.
 
 declare -A NODE_ALIASES=()   # /dev/node -> "alias1 alias2 ..."
-declare -A NODE_INFO=()      # /dev/node -> "SIZE|MODEL|TRAN|RM"
+declare -A NODE_INFO=()      # /dev/node -> "TYPE|SIZE|MODEL|TRAN|RM" (may be empty)
 
-for p in "$BYID"/*; do
-  [[ -e "$p" ]] || continue
-  b="${p##*/}"
-  case "$b" in
-    *-part[0-9]*|dm-*|md-*|lvm-*|*DVD*|*CD-ROM*|*cdrom*) continue ;;
-  esac
-  node="$(readlink -f "$p")"
-  info="$(lsblk -dnro TYPE,SIZE,MODEL,TRAN,RM "$node" 2>/dev/null || true)"
-  [[ "${info%%|*}" == "disk" ]] || continue
-  NODE_ALIASES["$node"]+="$b "
-  NODE_INFO["$node"]="$info"
-done
+HAVE_LSBLK=1
+command -v lsblk >/dev/null 2>&1 || HAVE_LSBLK=0
+(( HAVE_LSBLK )) || warn "lsblk not found — listing by name only, sizes unknown"
 
-((${#NODE_ALIASES[@]})) || die "no whole disks found under $BYID"
+declare -i N_TOTAL=0 N_DANGLING=0 N_FILTERED=0 N_REJECTED=0 N_LSBLK_OUT=0
+SAMPLE_REJECT=""
+
+discover() {
+  # $1 = 1 to consult lsblk, 0 for name-heuristic fallback (no sizes, no checks).
+  local use_lsblk="$1"
+  local p b node info
+  for p in "$BYID"/*; do
+    # NOTE: entries here are *always* symlinks — that is normal. A symlink whose
+    # target does not exist in this namespace (dangling) is unusable: skip it.
+    N_TOTAL=$((N_TOTAL + 1))
+    b="${p##*/}"
+    case "$b" in
+      *-part[0-9]*|dm-*|md-*|lvm-*|*DVD*|*CD-ROM*|*cdrom*)
+        N_FILTERED=$((N_FILTERED + 1)); continue ;;
+    esac
+    node="$(readlink -f "$p")"
+    if [[ ! -e "$node" ]]; then
+      N_DANGLING=$((N_DANGLING + 1)); continue
+    fi
+    info=""
+    if (( use_lsblk )); then
+      info="$(lsblk -dnro TYPE,SIZE,MODEL,TRAN,RM "$node" 2>/dev/null || true)"
+      [[ -n "$info" ]] && N_LSBLK_OUT=$((N_LSBLK_OUT + 1))
+      # Whole disks only — but take multipath nodes too (TYPE=mpath), they are
+      # stampable block devices just like plain disks.
+      case "${info%%|*}" in
+        disk|mpath) ;;
+        *) N_REJECTED=$((N_REJECTED + 1))
+           [[ -z "$SAMPLE_REJECT" ]] && SAMPLE_REJECT="$b -> $node (lsblk: '${info:-no output}')"
+           continue ;;
+      esac
+    fi
+    NODE_ALIASES["$node"]+="$b "
+    NODE_INFO["$node"]="$info"
+  done
+}
+
+discover "$HAVE_LSBLK"
+
+# lsblk answered nothing at all (missing columns on an old util-linux, broken
+# output) while real entries survived filtering: its verdicts are worthless, so
+# retry by name rather than reporting an empty machine.
+if ((${#NODE_ALIASES[@]} == 0 && HAVE_LSBLK && N_LSBLK_OUT == 0 && N_TOTAL - N_FILTERED - N_DANGLING > 0)); then
+  warn "lsblk produced no usable output — falling back to names only (sizes unknown, type unchecked)"
+  N_TOTAL=0; N_DANGLING=0; N_FILTERED=0; N_REJECTED=0; SAMPLE_REJECT=""
+  discover 0
+fi
+
+if ((${#NODE_ALIASES[@]} == 0)); then
+  die "no whole disks found under $BYID ($N_TOTAL entries: $N_DANGLING dangling, $N_FILTERED partition/mapper names, $N_REJECTED rejected by lsblk${SAMPLE_REJECT:+ — e.g. $SAMPLE_REJECT})"
+fi
 
 # Prefer stable, human-meaningful aliases; raw wwn/eui identifiers sort last.
 alias_rank() {
