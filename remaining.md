@@ -145,7 +145,14 @@ Every row below was executed; the evidence is a log or console capture in the VM
    stall), and it is now in `build/golden-packages.list`.
 9. **by-id paths behave**; partitions are addressed as `<by-id>-part<N>`.
 10. **OpenZFS 2.4.4 compiles via DKMS** against the stock 6.12 kernel and loads.
-11. **Everything on the boot path is now confirmed from the stamped machine's own journal**, not
+11. **DHCP networking is real config, not a default.** The stamp writes
+    `10-wired.network` with `DHCP=yes` and enables `systemd-networkd`; `stage_verify`
+    and the smoke test assert both. (Before: the DHCP path wrote nothing and relied on
+    a "golden default" that did not exist.)
+12. **The login user works.** `USERNAME` + hash and/or carrier key produce a sudo-member
+    account with `authorized_keys` and a set (or locked, for key-only) password —
+    asserted by `stage_verify` and the smoke test.
+13. **Everything on the boot path is now confirmed from the stamped machine's own journal**, not
     just from the console. One boot produced:
 
     ```
@@ -171,16 +178,21 @@ Every row below was executed; the evidence is a log or console capture in the VM
 
 ## 5. What is NOT working — the actual remaining work
 
-### 5.1 The smoke test has not been green since `stage_finish` + the UUID change
+### 5.1 The smoke test is green again (2026-09-18)
 
-`tests/smoke-stamp.sh` was 14/14 **before** those changes and has not been re-run to green. It
-is the cheapest feedback loop for the stamping half, so fixing it is worth an hour.
+`tests/smoke-stamp.sh` is **25/25** (`SKIP_GOLDEN=1`, ~10 min): stamp on loop disks,
+`stage_verify` green, and every boot-critical assertion passes — `grub.cfg`, kernel
+command line, `systemd-cryptsetup`, zram, the new `10-wired.network` DHCP config, and
+the login user (exists, sudo, authorized_keys, password hash).
 
-**Do this**: `SKIP_GOLDEN=1 bash tests/smoke-stamp.sh` and work through the assertions. Some
-assertions now check a state that `stage_finish` changes (the root dataset's `mountpoint` is
-`$MNT` during staging and `/` only after `stage_finish`), and there is a new `stage_verify`
-stage to account for. **Beware the trap that already bit once**: do not assert
-`mountpoint=/` while the target is still staged.
+Two deliberate non-failures: the pool stays imported and the containers stay open
+(the §5.5 export wart). The test records them as `WARN`, assembles `/mnt/check`
+in place from the still-imported pool (same mountpoint-swap technique as
+`tests/inspect-stamped.sh`, restored afterwards), and verifies the target either way.
+
+Fixed along the way: the smoke profile wrote `USER_PASSWORD_HASH` in double quotes,
+which the stamp sources under `set -u` — `$6` expands and dies. Single-quote hashes
+(see §6.21). The old "do not assert `mountpoint=/` while staged" trap still applies.
 
 ### 5.2 The test VM reboots mid-run — cause unknown
 
@@ -260,6 +272,31 @@ environment still answers `cannot export 'rpool': pool is busy`. Hypotheses test
 - *A faithful reproduction of the whole sequence* — mounting, chroot binds, cleanup, property
   restore — **exports cleanly on the VM host.** So it is something specific to the live
   environment, not to the sequence.
+
+Update 2026-09-18: reproduced deterministically on the **VM host** too (loop disks, smoke
+test) — so it is *not* live-environment-specific after all. Systematic elimination on the
+imported-but-unexportable pool (all with evidence, pool healthy, 0 errors throughout):
+
+- nothing mounted (`/proc/mounts`, `zfs mount` empty), no `/proc/*/cwd`, `/proc/*/fd`,
+  `/proc/*/root` holders, no deleted executables, no FUSE mounts;
+- stopping `zfs-mount.service` / `zfs-import-cache.service` / `zfs.target` changes nothing;
+- `udevadm settle`, `zpool sync`, `zpool reopen`, `zpool export -f`, dropping caches: all
+  still `pool is busy`;
+- even with one mirror child offlined (DEGRADED), export refuses;
+- replica pools export fine at every step: plain loops, LUKS-under-pool, LUKS on
+  partitions, the exact create flags, datasets + snapshots, bootfs, and the full
+  canmount/mountpoint juggling — each exported cleanly in isolation;
+- `zfs set canmount=on` does **not** auto-mount (toggled off→on, no mount appears), so the
+  property-restore ordering is exonerated; a `zfs unmount -f rpool/home` added after it
+  changed nothing and was reverted;
+- `zpool events` shows one transient `vdev.no_replicas` ereport mid-stamp, but the vdevs
+  are healthy before and after — a side trail.
+
+Still open: why a healthy, reference-free pool refuses export. New leads: `zpool offline`
++ `online` triggers a tiny resilver (something writes on state change — normal, but
+confirm nothing else writes while idle); whether `update-grub`'s `grub-probe`/`os-prober`
+leaves a lingering libzfs handle (no process survives, but check `/dev/zfs` openers via
+`lsof` next time); `zdb -e` spa state.
 
 Best remaining leads, in order, for whoever picks this up (~15 min per installer run to test):
 
@@ -387,6 +424,10 @@ Each of these cost a debugging cycle and is verified.
     ```
 20. **Useful env vars**: `SKIP_GOLDEN=1`, `KEEP_TARGET=1`, `CACHE_DIR=`, `OUT=`, `GOLDEN_WORK=`,
     `REPO=` (for `tests/installer-qemu.sh`), `DEADLINE=` (for `tests/boot-stamped.sh`).
+21. **Single-quote password hashes in profiles.** A crypt hash is full of `$` (`$6$salt$…`);
+    in double quotes the stamp (running under `set -u`) expands `$6` as a positional
+    parameter and dies with `unbound variable`. The smoke test itself fell into this.
+    `USER_PASSWORD_HASH='$6$…'` — always single quotes.
 
 ---
 
@@ -425,9 +466,10 @@ from the copy baked into the ISO, so a script change is testable in ~15 min inst
 
 ## 8. Suggested order of work
 
-1. **Get `tests/smoke-stamp.sh` green again** — §5.1. Cheapest feedback loop. It now asserts
-   `grub.cfg`, the kernel command line, `systemd-cryptsetup` and the zram config, so it should
-   catch a regression in any of the bugs listed in `README.md`.
+1. ~~**Get `tests/smoke-stamp.sh` green again**~~ — **done 2026-09-18 (25/25).** It now also
+   asserts the DHCP `10-wired.network` and the login user, so it catches regressions in
+   those too. Note the golden image on scratch already contains `sudo`; a fresh
+   `build-golden.sh` is only needed after `golden-packages.list` changes.
 2. **Boot the server profile** (mirror, mdadm `/boot`, zram) — §5.6. Extend
    `tests/boot-stamped.sh` to attach two disks; the mdadm/GRUB path is the least-tested part of
    the design.
