@@ -43,6 +43,11 @@ systemd-cryptsetup
 # --- memory: zram on servers, zswap on mini PCs ---
 systemd-zram-generator
 
+# --- hardware monitoring ---
+# `sensors` readout for temps/fans/voltages (one-operator fleet, headless machines).
+# No daemon, no config: drivers autoload and `sensors` reads what the kernel exposes.
+lm-sensors
+
 # --- system / operations ---
 systemd
 systemd-resolved
