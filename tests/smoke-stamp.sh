@@ -269,6 +269,11 @@ if (( POOLED )); then
   # before the summary so the target keeps its final layout.
   if zfs set mountpoint=/mnt/check rpool/ROOT/debian 2>/dev/null \
      && zfs mount rpool/ROOT/debian 2>/dev/null; then
+    # The login user's files live on the separate home dataset, not in the root
+    # tree — mount it too, or the authorized_keys/shadow assertions below read
+    # empty air.
+    zfs set mountpoint=/mnt/check/home rpool/home 2>/dev/null || true
+    zfs mount rpool/home 2>/dev/null || true
     pass "assembled /mnt/check from the still-imported pool"
     RESTORE_MOUNTPOINT=1
   else
@@ -460,14 +465,18 @@ fi
 # keep mountpoint=/ (the initramfs refuses anything else) even though these loop
 # disks are throwaway.
 if (( RESTORE_MOUNTPOINT )); then
-  # Wart path moved the root dataset to /mnt/check for inspection; the restore
-  # at the end puts it back. Assert the expected inspection state here.
+  # Wart path moved the datasets to /mnt/check for inspection; the restore
+  # at the end puts them back. Assert the expected inspection state here.
   umount /mnt/check/boot 2>/dev/null || true
+  zfs unmount rpool/home 2>/dev/null || true
   zfs unmount rpool/ROOT/debian 2>/dev/null || true
-  if zfs set mountpoint=/ rpool/ROOT/debian 2>/dev/null; then
-    pass "restored root dataset mountpoint=/ after in-place inspection"
+  restored=1
+  zfs set mountpoint=/home rpool/home 2>/dev/null || restored=0
+  zfs set mountpoint=/ rpool/ROOT/debian 2>/dev/null || restored=0
+  if (( restored )); then
+    pass "restored dataset mountpoints (/ and /home) after in-place inspection"
   else
-    fail "could not restore root dataset mountpoint=/"
+    fail "could not restore dataset mountpoints"
   fi
 fi
 

@@ -794,6 +794,14 @@ stage_user() {
     if chroot "$MNT" id "$USERNAME" >/dev/null 2>&1; then
       die "user $USERNAME already exists in the target — refusing to change an existing account"
     fi
+    # rpool/home is a separate dataset, received unmounted (mountpoint=none). Mount it
+    # at $MNT/home NOW, so useradd -m lands on the dataset that will be /home at boot.
+    # Otherwise the home dir is written to the root dataset and hidden under the home
+    # mount on first boot — login works, but there is no home directory. Teardown is
+    # already covered: unmount_target() releases $POOL/home by name, and stage_finish
+    # restores mountpoint=/home.
+    run zfs set canmount=noauto mountpoint="$MNT/home" "$POOL/home"
+    run zfs mount "$POOL/home"
     chroot "$MNT" useradd -m -s "$USER_SHELL" "$USERNAME" \
       || die "useradd failed for $USERNAME"
     chroot "$MNT" usermod -aG sudo "$USERNAME" \
