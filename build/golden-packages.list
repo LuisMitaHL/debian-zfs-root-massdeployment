@@ -1,0 +1,59 @@
+# Base packages baked into the golden Debian 13 root.
+#
+# ZFS packages are deliberately NOT here: they come from trixie-backports and are installed by
+# build/golden-customize.sh, after the backports source is added.
+#
+# One package per line. Blank lines and #-comments are stripped when this list is passed to
+# mmdebstrap --include.
+
+# --- kernel: stock trixie 6.12 (decision Q11 / DESIGN.md §9) ---
+linux-image-amd64
+linux-headers-amd64
+
+# --- ZFS build chain: Debian ships no prebuilt zfs.ko, so DKMS compiles it ---
+dkms
+build-essential
+
+# --- storage / boot ---
+mdadm
+gdisk
+dosfstools
+efibootmgr
+grub-common
+grub-efi-amd64
+grub-efi-amd64-signed
+grub-pc-bin
+shim-signed
+initramfs-tools
+zstd
+
+# --- encryption and remote unlock ---
+cryptsetup
+cryptsetup-initramfs
+dropbear-initramfs
+haveged
+# NOT optional, even though `systemd` only Recommends it and --variant=important drops
+# Recommends. Without it there is no systemd-cryptsetup-generator, and Debian MASKS the legacy
+# cryptdisks.service / cryptdisks-early.service (both are symlinks to /dev/null), so /etc/crypttab
+# would be completely inert at boot: the ephemeral swap device never appears and every boot then
+# stalls ~90s on `dev-mapper-swap.device` before swap.target fails. Measured: login prompt at
+# t=112s without it, t=24s with it.
+systemd-cryptsetup
+
+# --- memory: zram on servers, zswap on mini PCs ---
+systemd-zram-generator
+
+# --- system / operations ---
+systemd
+systemd-resolved
+openssh-server
+unattended-upgrades
+apt-listchanges
+ca-certificates
+curl
+rsync
+locales
+tzdata
+less
+vim-tiny
+bash-completion

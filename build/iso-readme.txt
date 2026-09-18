@@ -1,0 +1,99 @@
+========================================================================
+ Debian 13 root-on-ZFS  --  installer medium
+========================================================================
+
+You are looking at the root of the installer ISO. You almost certainly do
+not want to boot this directly on a machine you care about: the ISO boots a
+live Debian environment whose only purpose is to run the stamping script that
+writes a prebuilt ZFS root onto the target's disks. Everything on those disks
+is destroyed.
+
+The full design is in DESIGN.md in the source repository.
+
+
+WHAT YOU NEED
+------------------------------------------------------------------------
+This medium is only half of the installation. The other half is the CARRIER:
+a second partition (or a second USB stick) holding
+
+    rpool.stream.zst   the golden ZFS root, from `zfs send`
+    boot.tar.zst       the matching kernel + initramfs for the ext4 /boot
+    <host>.conf        a profile for each machine you are stamping
+
+Nothing is downloaded at install time, so without the carrier the installer
+cannot do anything useful. The golden image is kept separate from the ISO on
+purpose: refreshing the golden image must not mean rebuilding the ISO.
+
+Expected carrier layout (this is what the profiles default to):
+
+    /media/carrier/rpool.stream.zst
+    /media/carrier/boot.tar.zst
+    /media/carrier/<host>.conf
+    /media/carrier/luks.key           (optional, only for unattended runs)
+    /media/carrier/authorized_keys    (public key for remote initramfs unlock)
+
+
+QUICK START
+------------------------------------------------------------------------
+1. Boot the target machine from this medium (UEFI or legacy BIOS).
+
+   The live session auto-logs-in as `user` (password `live`).
+
+2. Plug in the carrier and mount it:
+
+       sudo mkdir -p /media/carrier
+       sudo mount LABEL=CARRIER /media/carrier
+
+3. Look at what it proposes to do. THIS IS A DRY RUN BY DEFAULT and writes
+   nothing:
+
+       sudo /usr/local/sbin/zfs-stamp.sh --profile /media/carrier/<host>.conf
+
+   Read the plan it prints: disks, topology, firmware mode, encryption, swap.
+   The machine's disk serial numbers must match the DISKS list in the profile.
+
+4. Do it for real:
+
+       sudo /usr/local/sbin/zfs-stamp.sh --profile /media/carrier/<host>.conf --apply --yes
+
+5. Reboot the machine and remove this medium.
+
+   The target asks for the LUKS passphrase -- on a monitor, or on the serial
+   console if the profile sets SERIAL_CONSOLE. If the profile sets
+   DROPBEAR_AUTHORIZED_KEYS you can instead SSH into the initramfs and run
+   `cryptroot-unlock`. The machine then seals its own identity (machine-id,
+   SSH host keys, dropbear host keys, /etc/hostid) and reboots once more.
+
+
+SAFETY
+------------------------------------------------------------------------
+* Dry run is the default. `--apply` is required to write anything.
+* Every disk in DISKS must be a /dev/disk/by-id/* path. Bare /dev/sdX names
+  are rejected, because they are not stable across reboots and are the usual
+  cause of "it installed to the wrong disk".
+* The script refuses to report success unless the target passes an internal
+  check that it can actually boot (GRUB menu present, initramfs able to
+  unlock the pool, crypttab keyed by UUID, ...). If it says
+  "target verification FAILED", the machine would not have booted -- read the
+  warnings above it rather than rebooting.
+* A profile is SOURCED AS SHELL by the stamping script. Only use profiles you
+  wrote yourself or trust completely.
+
+
+IF SOMETHING GOES WRONG
+------------------------------------------------------------------------
+Boot logs and the LUKS prompt go to the serial console when the profile sets
+SERIAL_CONSOLE (e.g. "ttyS0,115200"). On a machine with no serial port, or if
+you never see the prompt, check that the profile has it set and that
+/boot/grub/grub.cfg inside the stamped root carries console=ttyS0.
+
+Note that a stock Debian trixie ISO can NEVER import these pools. They are
+created by OpenZFS 2.4 and cannot be read by trixie's 2.3. You need this
+medium, or another one built from trixie-backports.
+
+
+COPYRIGHT / LICENSING
+------------------------------------------------------------------------
+Debian GNU/Linux installer medium. Debian is free software; each package
+carries its own licence, shipped in /usr/share/doc/<package>/copyright inside
+the live filesystem. OpenZFS is CDDL-licensed and is not part of Debian main.

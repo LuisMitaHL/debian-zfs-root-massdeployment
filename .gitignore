@@ -1,0 +1,22 @@
+# Build artifacts — reproducible, ~3 GB, never commit
+/out/
+
+# Stray VM / build outputs if OUT= is overridden elsewhere
+*.img
+*.img.*
+*.qcow2
+*.raw
+*.stream.zst
+vars.fd
+OVMF_VARS*.fd
+
+# Logs
+*.log
+
+# Editor / OS noise
+.DS_Store
+*~
+*.swp
+*.swo
+.vscode/
+.idea/

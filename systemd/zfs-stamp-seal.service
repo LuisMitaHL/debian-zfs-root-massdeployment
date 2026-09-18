@@ -1,0 +1,18 @@
+[Unit]
+Description=Seal per-machine identity after golden-image stamping
+Documentation=file:///usr/local/share/doc/debian-zfs-root/DESIGN.md
+ConditionPathExists=!/var/lib/zfs-stamp/sealed
+# Must run after the pool is imported and before anything that cares about host keys.
+After=zfs-mount.service zfs-import.target local-fs.target network-pre.target
+Before=ssh.service dropbear.service
+Wants=zfs-import.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/seal-identity.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
