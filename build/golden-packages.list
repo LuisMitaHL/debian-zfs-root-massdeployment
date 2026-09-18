@@ -73,3 +73,6 @@ tzdata
 less
 vim-tiny
 bash-completion
+# Operator tooling on every machine: process viewer and "did you mean" handler.
+htop
+command-not-found
